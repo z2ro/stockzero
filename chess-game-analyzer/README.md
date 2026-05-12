@@ -13,7 +13,7 @@ Backend FastAPI para importar partidas públicas do Chess.com ou PGNs colados pe
 - Explicações baseadas em avaliação, PV, material, segurança do rei e padrões detectáveis.
 - Relatório com precisão estimada, contagens de erros, momento crítico, maior erro, fase mais problemática e curva de avaliação.
 - Plano de estudos agrupado por abertura, tática, estratégia, finais e gerenciamento de tempo.
-- Interface simples em Streamlit e página raiz mínima apontando para `/docs`.
+- Interface Streamlit mais amigável com tabuleiro recriado a partir do PGN, navegação lance a lance, cartões de lances críticos e plano de estudo.
 
 ## Requisitos
 
@@ -91,7 +91,12 @@ Com a API rodando:
 streamlit run frontend/streamlit_app.py
 ```
 
-Acesse <http://localhost:8501>.
+Acesse <http://localhost:8501>. A interface permite colar PGN, importar partidas públicas do Chess.com e revisar a análise em um tabuleiro navegável reconstruído diretamente do PGN salvo.
+
+
+### Revisão visual da partida
+
+Depois de analisar um PGN ou importar do Chess.com, abra o `game_id` no Streamlit. A aba **Tabuleiro** reconstrói a partida inteira a partir do PGN salvo, permite navegar lance a lance, alternar orientação entre brancas/pretas e mostra ao lado a avaliação, melhor lance, temas e explicação do lance selecionado. As abas **Lances críticos** e **Plano de estudo** transformam o JSON bruto em cartões e sugestões mais fáceis de entender.
 
 ## Docker Compose
 

@@ -62,6 +62,7 @@ def game_to_dict(game: Game) -> dict:
         "opening": game.opening,
         "eco": game.eco,
         "time_control": game.time_control,
+        "pgn": game.pgn,
         "analysis": json.loads(game.analysis_json) if game.analysis_json else None,
         "report": json.loads(game.report_json) if game.report_json else None,
     }
