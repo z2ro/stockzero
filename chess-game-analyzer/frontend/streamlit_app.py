@@ -1,3 +1,4 @@
+from html import escape
 from io import StringIO
 import os
 
@@ -18,6 +19,68 @@ st.caption(
     "Analise PGNs ou partidas públicas do Chess.com com um tabuleiro navegável "
     "e explicações mais claras."
 )
+
+
+def inject_review_css() -> None:
+    st.markdown(
+        """
+        <style>
+        .stApp { background: #302e2c; color: #ddd; }
+        div[data-testid="stHeader"] { background: rgba(48, 46, 44, 0.96); }
+        .block-container { padding-top: 1rem; max-width: 1400px; }
+        .review-player {
+            background: #252421; border-radius: 6px; padding: 8px 12px;
+            display: flex; align-items: center; justify-content: space-between;
+            margin: 6px 0; color: #f1f1f1; font-weight: 700;
+        }
+        .review-player .rating { color: #b8b8b8; font-weight: 500; }
+        .review-clock {
+            background: #f1f1f1; color: #222; border-radius: 4px;
+            padding: 5px 14px; font-size: 1.35rem; font-weight: 800;
+        }
+        .review-panel {
+            background: #242321; border-radius: 8px; border: 1px solid #191817;
+            padding: 0 14px 14px 14px; box-shadow: 0 8px 24px rgba(0,0,0,.25);
+        }
+        .review-header {
+            height: 46px; display: flex; align-items: center; justify-content: center;
+            border-bottom: 1px solid #383633; font-size: 1.05rem; font-weight: 800;
+        }
+        .coach-row { display: flex; gap: 12px; align-items: center; margin: 18px 0; }
+        .coach-avatar { font-size: 4.2rem; line-height: 1; }
+        .coach-bubble {
+            background: #f6f6f6; color: #111; border-radius: 10px;
+            padding: 16px 18px; font-weight: 700; flex: 1; min-height: 62px;
+        }
+        .review-actions { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin: 10px 0; }
+        .review-action {
+            background: linear-gradient(#4a4946, #333230); border-radius: 5px;
+            text-align: center; padding: 12px 6px; font-weight: 800; color: #e9e9e9;
+        }
+        .review-action.next { background: linear-gradient(#8cc45a, #5a9c3d); color: white; }
+        .move-table { width: 100%; border-collapse: collapse; font-size: .94rem; margin-top: 6px; }
+        .move-table td { padding: 6px 8px; border: 0; }
+        .move-table tr:nth-child(odd) { background: #2b2a27; }
+        .move-table .num { color: #aaa; width: 38px; text-align: right; }
+        .move-table .selected { background: rgba(125, 176, 80, .28); color: #b8f27b; font-weight: 800; border-radius: 4px; }
+        .critical-card {
+            border: 1px solid #403f3b; border-radius: 6px; padding: 10px 12px;
+            margin: 8px 0; background: #1f1e1c;
+        }
+        .critical-card strong { color: #fff; }
+        .eval-wrap { background: #3a3936; border-radius: 2px; padding: 5px; margin-top: 14px; }
+        .bottom-controls { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-top: 12px; }
+        .bottom-controls div {
+            background: linear-gradient(#4a4946, #302f2d); border-radius: 7px;
+            text-align: center; padding: 14px 0; font-weight: 900; font-size: 1.35rem;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+inject_review_css()
 
 
 CLASS_EMOJI = {
@@ -82,15 +145,17 @@ def render_board(
     position: dict,
     orientation: chess.Color = chess.WHITE,
     arrows: list[chess.svg.Arrow] | None = None,
+    size: int = 720,
 ) -> None:
     svg = chess.svg.board(
         board=position["board"],
         lastmove=position.get("lastmove"),
         arrows=arrows or [],
         orientation=orientation,
-        size=430,
+        size=size,
+        colors={"square light": "#eeeed2", "square dark": "#769656"},
     )
-    components.html(svg, height=450)
+    components.html(svg, height=size + 18)
 
 
 def arrow_from_uci(uci: str | None, color: str) -> chess.svg.Arrow | None:
@@ -282,72 +347,214 @@ def show_study_plan(report: dict) -> None:
             st.caption(suggestion["recommended_exercise"])
 
 
+
+def format_player(name: str | None, rating: int | None) -> str:
+    rating_text = f" <span class='rating'>({rating})</span>" if rating else ""
+    return f"{escape(name or '?')}{rating_text}"
+
+
+def render_player_bar(
+    name: str | None,
+    rating: int | None,
+    clock: str,
+    bottom: bool = False,
+) -> None:
+    avatar = "🖼️" if bottom else "♟️"
+    st.markdown(
+        f"""
+        <div class="review-player">
+          <div>{avatar} {format_player(name, rating)}</div>
+          <div class="review-clock">{escape(clock)}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def coach_message(item: dict | None) -> str:
+    if not item:
+        return "Navegue pelos lances para revisar a posição com o treinador."
+    best = item.get("best_move_san") or "a melhor linha"
+    label = item.get("classification") or "Lance"
+    if item.get("cp_loss") is not None and item["cp_loss"] > 0:
+        return f"{item.get('played_san')} é {label.lower()}; Stockfish preferia {best}."
+    return f"{item.get('played_san')} está ok. Melhor referência: {best}."
+
+
+def eval_badge(item: dict | None) -> str:
+    if not item or item.get("eval_after_cp") is None:
+        return ""
+    value = item["eval_after_cp"] / 100
+    return f"{value:+.2f}"
+
+
+def move_cell(item: dict | None, selected_ply: int) -> str:
+    if not item:
+        return ""
+    emoji = CLASS_EMOJI.get(item.get("classification"), "")
+    text = f"{emoji} {escape(item.get('played_san') or '')}".strip()
+    css = " class='selected'" if item.get("ply") == selected_ply else ""
+    return f"<td{css}>{text}</td>"
+
+
+def move_table_html(analysis_by_ply: dict[int, dict], selected_ply: int) -> str:
+    max_ply = max(analysis_by_ply.keys(), default=0)
+    rows = []
+    for move_number in range(1, (max_ply + 1) // 2 + 1):
+        white_item = analysis_by_ply.get(move_number * 2 - 1)
+        black_item = analysis_by_ply.get(move_number * 2)
+        rows.append(
+            "<tr>"
+            f"<td class='num'>{move_number}.</td>"
+            f"{move_cell(white_item, selected_ply)}"
+            f"{move_cell(black_item, selected_ply)}"
+            "</tr>"
+        )
+    return "<table class='move-table'>" + "".join(rows[:14]) + "</table>"
+
+
+def eval_graph_svg(curve: list[dict], selected_ply: int) -> str:
+    width, height = 420, 78
+    if not curve:
+        return f"<svg width='100%' viewBox='0 0 {width} {height}'></svg>"
+    points = []
+    for index, item in enumerate(curve):
+        cp = max(-800, min(800, item.get("white_cp") or 0))
+        x = 0 if len(curve) == 1 else index * (width / (len(curve) - 1))
+        y = height / 2 - (cp / 800) * (height / 2 - 8)
+        points.append((x, y))
+    polygon = (
+        f"0,{height} "
+        + " ".join(f"{x:.1f},{y:.1f}" for x, y in points)
+        + f" {width},{height}"
+    )
+    polyline = " ".join(f"{x:.1f},{y:.1f}" for x, y in points)
+    selected_x = 0
+    if curve:
+        selected_index = max(0, min(selected_ply - 1, len(curve) - 1))
+        selected_x = points[selected_index][0]
+    dots = "".join(
+        f"<circle cx='{x:.1f}' cy='{y:.1f}' r='3' fill='#ff6f61'/>"
+        for x, y in points[:: max(1, len(points) // 8)]
+    )
+    return f"""
+    <svg width="100%" viewBox="0 0 {width} {height}" role="img">
+      <rect width="{width}" height="{height}" fill="#3a3936"/>
+      <line x1="0" y1="{height/2}" x2="{width}" y2="{height/2}" stroke="#ddd" stroke-width="1" opacity=".7"/>
+      <polygon points="{polygon}" fill="#f4f4f4" opacity=".95"/>
+      <polyline points="{polyline}" fill="none" stroke="#f4f4f4" stroke-width="2"/>
+      {dots}
+      <line x1="{selected_x:.1f}" y1="0" x2="{selected_x:.1f}" y2="{height}" stroke="#ff6f61" stroke-width="3"/>
+    </svg>
+    """
+
+
+def render_review_panel(
+    report: dict,
+    analysis_by_ply: dict[int, dict],
+    selected_item: dict | None,
+    selected_ply: int,
+    slider_key: str,
+) -> None:
+    st.markdown("<div class='review-panel'>", unsafe_allow_html=True)
+    st.markdown("<div class='review-header'>⭐ Revisão da Partida 🔍</div>", unsafe_allow_html=True)
+    st.markdown(
+        f"""
+        <div class="coach-row">
+          <div class="coach-avatar">👨‍🏫</div>
+          <div class="coach-bubble">
+            {CLASS_EMOJI.get(selected_item.get('classification') if selected_item else '', '💡')}
+            {escape(coach_message(selected_item))}
+            <span style="float:right;background:#eee;padding:2px 8px;border-radius:3px;">
+              {eval_badge(selected_item)}
+            </span>
+          </div>
+        </div>
+        <div class="review-actions">
+          <div class="review-action">⭐ Melhor</div>
+          <div class="review-action">💡 Explicar</div>
+          <div class="review-action next">➜ Próximo</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.markdown(move_table_html(analysis_by_ply, selected_ply), unsafe_allow_html=True)
+    st.markdown("#### Lances críticos")
+    show_critical_cards(report, slider_key=slider_key)
+    graph = eval_graph_svg(report.get("evaluation_curve") or [], selected_ply)
+    st.markdown(f"<div class='eval-wrap'>{graph}</div>", unsafe_allow_html=True)
+    st.markdown(
+        """
+        <div class="bottom-controls">
+          <div>⏮</div><div>‹</div><div>▶</div><div>›</div><div>⏭</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
 def show_game(game_id: int) -> None:
     game = api_get(f"/games/{game_id}")
     report = game.get("report") or {}
     pgn = game.get("pgn") or ""
 
-    st.divider()
-    white = game.get("white") or "Brancas"
-    black = game.get("black") or "Pretas"
-    st.header(f"Partida #{game_id}: {white} vs {black}")
-    opening = game.get("opening") or "desconhecida"
-    result = game.get("result") or "—"
-    st.caption(f"Abertura: {opening} · Resultado: {result}")
-    show_metrics(report)
-    st.info(report.get("natural_summary") or "Relatório gerado.")
-
     positions = positions_from_pgn(pgn)
     analysis_by_ply = move_analysis_by_ply(game)
-    tab_board, tab_study, tab_raw = st.tabs(
-        ["🧩 Tabuleiro", "🎯 Plano de estudo", "📄 PGN/JSON"]
+    if not positions:
+        st.warning("Não foi possível recriar o tabuleiro porque o PGN não está disponível.")
+        return
+
+    slider_key = f"target_ply_{game_id}"
+    labels = [position["label"] for position in positions]
+    selected = st.slider(
+        "Navegue lance a lance",
+        0,
+        len(positions) - 1,
+        min(st.session_state.get(slider_key, len(positions) - 1), len(positions) - 1),
+        format="%d",
+        label_visibility="collapsed",
     )
+    st.session_state[slider_key] = selected
+    selected_item = analysis_by_ply.get(positions[selected]["ply"])
+    board_position = board_position_for_selection(positions, selected_item, selected)
 
-    with tab_board:
-        if not positions:
-            st.warning("Não foi possível recriar o tabuleiro porque o PGN não está disponível.")
-        else:
-            left, right = st.columns([1.15, 0.85])
-            slider_key = f"target_ply_{game_id}"
-            with left:
-                labels = [position["label"] for position in positions]
-                selected = st.slider(
-                    "Navegue lance a lance",
-                    0,
-                    len(positions) - 1,
-                    min(
-                        st.session_state.get(slider_key, len(positions) - 1),
-                        len(positions) - 1,
-                    ),
-                    format="%d",
-                )
-                st.session_state[slider_key] = selected
-                selected_item = analysis_by_ply.get(positions[selected]["ply"])
-                board_position = board_position_for_selection(
-                    positions, selected_item, selected
-                )
-                st.caption(
-                    f"{labels[selected]} · setas: vermelho = lance jogado; "
-                    "verde/azul/laranja = melhores linhas Stockfish"
-                )
-                orientation_name = st.radio(
-                    "Orientação", ["Brancas", "Pretas"], horizontal=True
-                )
-                orientation = chess.WHITE if orientation_name == "Brancas" else chess.BLACK
-                render_board(board_position, orientation, best_move_arrows(selected_item))
-            with right:
-                st.markdown("### Lance selecionado")
-                show_move_details(selected_item)
-                st.markdown("### Lances críticos")
-                show_critical_cards(report, slider_key=slider_key)
+    board_col, panel_col = st.columns([1.55, 1], gap="large")
+    with board_col:
+        render_player_bar(game.get("black"), game.get("black_rating"), "9:35")
+        st.caption(
+            f"{labels[selected]} · vermelho = lance jogado · "
+            "verde/azul/laranja = melhores opções Stockfish"
+        )
+        board_wrap = st.columns([0.04, 0.96], gap="small")
+        with board_wrap[0]:
+            current_eval = selected_item.get("eval_after_cp") if selected_item else None
+            eval_text = eval_badge(selected_item) or "0.0"
+            fill_pct = 50 if current_eval is None else max(
+                5, min(95, 50 + current_eval / 20)
+            )
+            st.markdown(
+                f"""
+                <div style="height:720px;background:#111;border-radius:3px;position:relative;">
+                  <div style="position:absolute;bottom:0;width:100%;height:{fill_pct}%;background:#f5f5f5;"></div>
+                  <div style="position:absolute;top:6px;left:2px;font-size:.75rem;color:#ddd;">
+                    {eval_text}
+                  </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+        with board_wrap[1]:
+            render_board(board_position, chess.WHITE, best_move_arrows(selected_item), size=720)
+        render_player_bar(game.get("white"), game.get("white_rating"), "9:15", bottom=True)
 
-    with tab_study:
-        show_study_plan(report)
-
-    with tab_raw:
-        st.download_button("Baixar PGN", pgn, file_name=f"game_{game_id}.pgn")
-        st.text_area("PGN", pgn, height=240)
-        with st.expander("JSON completo"):
+    with panel_col:
+        render_review_panel(report, analysis_by_ply, selected_item, selected, slider_key)
+        with st.expander("🎯 Plano de estudo"):
+            show_study_plan(report)
+        with st.expander("📄 PGN / JSON"):
+            st.download_button("Baixar PGN", pgn, file_name=f"game_{game_id}.pgn")
+            st.text_area("PGN", pgn, height=180)
             st.json(game)
 
 
