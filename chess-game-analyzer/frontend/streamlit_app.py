@@ -64,6 +64,12 @@ def inject_review_css() -> None:
         .move-table tr:nth-child(odd) { background: #2b2a27; }
         .move-table .num { color: #aaa; width: 38px; text-align: right; }
         .move-table .selected { background: rgba(125, 176, 80, .28); color: #b8f27b; font-weight: 800; border-radius: 4px; }
+        .move-row { display: grid; grid-template-columns: 38px 1fr 1fr; gap: 6px; align-items: center; margin: 2px 0; }
+        .move-num { color: #aaa; text-align: right; padding-right: 6px; font-weight: 700; }
+        .critical-inline {
+            background: #332f2a; border-left: 3px solid #f0b84a; border-radius: 4px;
+            padding: 7px 9px; margin: 6px 0 8px 44px; font-size: .86rem;
+        }
         .critical-card {
             border: 1px solid #403f3b; border-radius: 6px; padding: 10px 12px;
             margin: 8px 0; background: #1f1e1c;
@@ -520,6 +526,66 @@ def install_keyboard_navigation(selected_ply: int, max_ply: int) -> None:
         width=0,
     )
 
+
+def critical_note(item: dict | None) -> str | None:
+    critical_classes = {"Inaccuracy", "Mistake", "Blunder", "Missed Win"}
+    if not item or item.get("classification") not in critical_classes:
+        return None
+    best = item.get("best_move_san") or "—"
+    loss = item.get("cp_loss")
+    loss_text = f"{loss} cp" if loss is not None else "mate"
+    return f"{CLASS_EMOJI.get(item.get('classification'), '⚠️')} Melhor: {best} · perda {loss_text}"
+
+
+def move_button_label(item: dict | None) -> str:
+    if not item:
+        return ""
+    emoji = CLASS_EMOJI.get(item.get("classification"), "")
+    return f"{emoji} {item.get('played_san') or ''}".strip()
+
+
+def render_move_button(
+    item: dict | None,
+    selected_ply: int,
+    slider_key: str,
+    max_ply: int,
+    key_prefix: str,
+) -> None:
+    if not item:
+        st.write("")
+        return
+    is_selected = item.get("ply") == selected_ply
+    button_type = "primary" if is_selected else "secondary"
+    if st.button(move_button_label(item), key=f"{key_prefix}_{item['ply']}", type=button_type):
+        set_target_ply(slider_key, int(item["ply"]), max_ply)
+        st.rerun()
+
+
+def render_move_list(
+    analysis_by_ply: dict[int, dict],
+    selected_ply: int,
+    slider_key: str,
+    max_ply: int,
+) -> None:
+    max_analyzed_ply = max(analysis_by_ply.keys(), default=0)
+    with st.container(height=330):
+        for move_number in range(1, (max_analyzed_ply + 1) // 2 + 1):
+            white_item = analysis_by_ply.get(move_number * 2 - 1)
+            black_item = analysis_by_ply.get(move_number * 2)
+            cols = st.columns([0.16, 0.42, 0.42])
+            cols[0].markdown(f"<div class='move-num'>{move_number}.</div>", unsafe_allow_html=True)
+            with cols[1]:
+                render_move_button(white_item, selected_ply, slider_key, max_ply, "white_move")
+            with cols[2]:
+                render_move_button(black_item, selected_ply, slider_key, max_ply, "black_move")
+            for item in (white_item, black_item):
+                note = critical_note(item)
+                if note:
+                    st.markdown(
+                        f"<div class='critical-inline'>{escape(note)}</div>",
+                        unsafe_allow_html=True,
+                    )
+
 def render_review_panel(
     report: dict,
     analysis_by_ply: dict[int, dict],
@@ -557,12 +623,14 @@ def render_review_panel(
         best = selected_item.get("best_move_san") or "—"
         best_line = " ".join(selected_item.get("pv") or []) or "Linha não disponível."
         st.success(f"Melhor lance: {best}. Linha: {best_line}")
+    selected_note = critical_note(selected_item)
+    if selected_note:
+        st.warning(selected_note)
     if explain_clicked:
         show_move_details(selected_item)
 
-    st.markdown(move_table_html(analysis_by_ply, selected_ply), unsafe_allow_html=True)
-    st.markdown("#### Lances críticos")
-    show_critical_cards(report, slider_key=slider_key)
+    st.markdown("#### Lances e críticos")
+    render_move_list(analysis_by_ply, selected_ply, slider_key, max_ply)
     graph = eval_graph_svg(report.get("evaluation_curve") or [], selected_ply)
     st.markdown(f"<div class='eval-wrap'>{graph}</div>", unsafe_allow_html=True)
 
@@ -603,10 +671,11 @@ def show_game(game_id: int) -> None:
         "Navegue lance a lance",
         0,
         max_ply,
+        value=st.session_state[slider_key],
         format="%d",
         label_visibility="collapsed",
-        key=slider_key,
     )
+    st.session_state[slider_key] = selected
     install_keyboard_navigation(selected, max_ply)
     selected_item = analysis_by_ply.get(positions[selected]["ply"])
     board_position = board_position_for_selection(positions, selected_item, selected)
