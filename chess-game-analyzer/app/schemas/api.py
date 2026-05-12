@@ -25,6 +25,15 @@ class ChessComAnalyzeRequest(BaseModel):
     max_moves: int | None = Field(default=None, ge=1)
 
 
+class ChessComSingleGameAnalyzeRequest(BaseModel):
+    username: str
+    pgn: str = Field(..., min_length=10)
+    url: str | None = None
+    depth: int | None = Field(default=None, ge=1, le=40)
+    multipv: int | None = Field(default=None, ge=1, le=5)
+    max_moves: int | None = Field(default=None, ge=1)
+
+
 class GameSummary(BaseModel):
     id: int
     source: str

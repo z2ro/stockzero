@@ -8,8 +8,19 @@ from sqlalchemy.orm import Session
 from app.db.init_db import init_db
 from app.db.session import get_db
 from app.models.game import Game
-from app.schemas.api import AnalyzeResponse, ChessComAnalyzeRequest, GameSummary, PgnAnalyzeRequest
-from app.services.chesscom_client import ChessComClient, chesscom_game_to_pgn, filter_games
+from app.schemas.api import (
+    AnalyzeResponse,
+    ChessComAnalyzeRequest,
+    ChessComSingleGameAnalyzeRequest,
+    GameSummary,
+    PgnAnalyzeRequest,
+)
+from app.services.chesscom_client import (
+    ChessComClient,
+    chesscom_game_to_pgn,
+    filter_games,
+    summarize_game,
+)
 from app.services.game_analyzer import analyze_game
 from app.services.pgn_parser import PgnValidationError, export_pgn, parse_pgn
 from app.services.report_generator import generate_report
@@ -87,6 +98,32 @@ async def analyze_pgn_upload(
     if not pgn:
         raise HTTPException(status_code=400, detail="Envie um arquivo PGN ou cole o texto PGN.")
     return _analyze_and_store(db, pgn, source="manual", depth=depth, multipv=multipv, max_moves=max_moves)
+
+
+@app.get("/players/{username}/chesscom-public-games")
+async def chesscom_public_games(username: str, limit: int = 20) -> dict:
+    client = ChessComClient()
+    raw_games = await client.fetch_games(username, limit=min(max(limit, 1), 50))
+    raw_games = sorted(raw_games, key=lambda game: game.get("end_time") or 0, reverse=True)
+    games = [summarize_game(game, username) for game in raw_games if game.get("pgn")]
+    return {"username": username, "games": games}
+
+
+@app.post("/analyze/chesscom/game", response_model=AnalyzeResponse)
+def analyze_single_chesscom_game(
+    payload: ChessComSingleGameAnalyzeRequest,
+    db: Annotated[Session, Depends(get_db)],
+) -> AnalyzeResponse:
+    return _analyze_and_store(
+        db,
+        payload.pgn,
+        source="chesscom",
+        username=payload.username,
+        url=payload.url,
+        depth=payload.depth,
+        multipv=payload.multipv,
+        max_moves=payload.max_moves,
+    )
 
 
 @app.post("/analyze/chesscom")

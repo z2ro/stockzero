@@ -13,7 +13,7 @@ Backend FastAPI para importar partidas públicas do Chess.com ou PGNs colados pe
 - Explicações baseadas em avaliação, PV, material, segurança do rei e padrões detectáveis.
 - Relatório com precisão estimada, contagens de erros, momento crítico, maior erro, fase mais problemática e curva de avaliação.
 - Plano de estudos agrupado por abertura, tática, estratégia, finais e gerenciamento de tempo.
-- Interface Streamlit mais amigável com tabuleiro recriado a partir do PGN, navegação lance a lance, cartões de lances críticos e plano de estudo.
+- Interface Streamlit mais amigável com busca de partidas públicas do Chess.com, painel de histórico com botão **Analizar** por partida, tabuleiro recriado a partir do PGN, navegação lance a lance, cartões de lances críticos e plano de estudo.
 
 ## Requisitos
 
@@ -91,12 +91,12 @@ Com a API rodando:
 streamlit run frontend/streamlit_app.py
 ```
 
-Acesse <http://localhost:8501>. A interface permite colar PGN, importar partidas públicas do Chess.com e revisar a análise em um tabuleiro navegável reconstruído diretamente do PGN salvo.
+Acesse <http://localhost:8501>. A interface permite colar PGN, buscar partidas públicas do Chess.com por username, escolher no painel qual partida analisar e revisar a análise em um tabuleiro navegável reconstruído diretamente do PGN salvo.
 
 
 ### Revisão visual da partida
 
-Depois de analisar um PGN ou importar do Chess.com, abra o `game_id` no Streamlit. A aba **Tabuleiro** reconstrói a partida inteira a partir do PGN salvo, permite navegar lance a lance, alternar orientação entre brancas/pretas e mostra ao lado a avaliação, melhor lance, temas e explicação do lance selecionado. As abas **Lances críticos** e **Plano de estudo** transformam o JSON bruto em cartões e sugestões mais fáceis de entender.
+No modo Chess.com, informe apenas o username e clique em **Buscar partidas**. O app mostra um painel de histórico com jogadores, resultado, controle de tempo, data e um botão **Analizar** em cada linha; apenas a partida escolhida é enviada para o Stockfish. Depois de analisar um PGN ou uma partida do painel, abra o `game_id` no Streamlit. A aba **Tabuleiro** reconstrói a partida inteira a partir do PGN salvo, permite navegar lance a lance, alternar orientação entre brancas/pretas e mostra ao lado a avaliação, melhor lance, temas e explicação do lance selecionado. As abas **Lances críticos** e **Plano de estudo** transformam o JSON bruto em cartões e sugestões mais fáceis de entender.
 
 ## Docker Compose
 
@@ -165,18 +165,21 @@ curl -X POST http://localhost:8000/analyze/pgn \
   }'
 ```
 
-### Analisar partidas públicas do Chess.com
+### Listar partidas públicas do Chess.com antes de analisar
 
 ```bash
-curl -X POST http://localhost:8000/analyze/chesscom \
+curl "http://localhost:8000/players/hikaru/chesscom-public-games?limit=20"
+```
+
+A interface Streamlit usa essa lista para mostrar o painel de partidas e só envia ao Stockfish a linha em que você clicar **Analizar**. Se quiser fazer o mesmo por API, pegue o `pgn` de uma partida retornada e envie para:
+
+```bash
+curl -X POST http://localhost:8000/analyze/chesscom/game \
   -H 'Content-Type: application/json' \
   -d '{
     "username": "hikaru",
-    "year": 2024,
-    "month": 1,
-    "color": "white",
-    "rating_min": 2500,
-    "limit": 1,
+    "url": "https://www.chess.com/game/live/...",
+    "pgn": "[Event ...]",
     "max_moves": 20
   }'
 ```

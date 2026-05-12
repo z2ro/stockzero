@@ -103,3 +103,53 @@ def played_date_from_timestamp(timestamp: int | None) -> str | None:
     if not timestamp:
         return None
     return datetime.fromtimestamp(timestamp, UTC).date().isoformat()
+
+
+def _score_from_result(result: str | None) -> str:
+    if result in {"win"}:
+        return "1"
+    draw_results = {
+        "agreed",
+        "repetition",
+        "stalemate",
+        "insufficient",
+        "50move",
+        "timevsinsufficient",
+    }
+    if result in draw_results:
+        return "½"
+    if result is None:
+        return "?"
+    return "0"
+
+
+def summarize_game(game: dict, username: str | None = None) -> dict:
+    white = game.get("white", {})
+    black = game.get("black", {})
+    white_score = _score_from_result(white.get("result"))
+    black_score = _score_from_result(black.get("result"))
+    return {
+        "id": game.get("uuid") or game.get("url"),
+        "url": game.get("url"),
+        "pgn": game.get("pgn"),
+        "time_control": game.get("time_control"),
+        "time_class": game.get("time_class"),
+        "rated": game.get("rated"),
+        "end_time": game.get("end_time"),
+        "played_at": played_date_from_timestamp(game.get("end_time")),
+        "white": {
+            "username": white.get("username"),
+            "rating": white.get("rating"),
+            "result": white.get("result"),
+            "score": white_score,
+        },
+        "black": {
+            "username": black.get("username"),
+            "rating": black.get("rating"),
+            "result": black.get("result"),
+            "score": black_score,
+        },
+        "result": f"{white_score}-{black_score}",
+        "user_color": _player_color(game, username) if username else None,
+        "user_result": _player_result(game, username) if username else None,
+    }

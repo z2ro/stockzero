@@ -11,6 +11,7 @@ import streamlit.components.v1 as components
 st.set_page_config(page_title="Chess Game Analyzer", page_icon="♟️", layout="wide")
 
 DEFAULT_API_URL = os.getenv("API_URL", "http://localhost:8000")
+DEFAULT_MAX_MOVES = int(os.getenv("DEFAULT_ANALYSIS_MAX_MOVES", "80"))
 API_URL = st.sidebar.text_input("API URL", DEFAULT_API_URL).rstrip("/")
 st.title("♟️ Chess Game Analyzer")
 st.caption(
@@ -89,6 +90,60 @@ def render_board(position: dict, orientation: chess.Color = chess.WHITE) -> None
 def move_analysis_by_ply(game: dict) -> dict[int, dict]:
     return {item["ply"]: item for item in (game.get("analysis") or {}).get("moves", [])}
 
+
+def count_pgn_plies(pgn: str | None) -> int:
+    if not pgn:
+        return 0
+    return max(0, len(positions_from_pgn(pgn)) - 1)
+
+
+def player_text(player: dict) -> str:
+    username = player.get("username") or "?"
+    rating = player.get("rating")
+    rating_text = f" ({rating})" if rating else ""
+    return f"{username}{rating_text}"
+
+
+def show_chesscom_games_panel(username: str, games: list[dict], max_moves: int) -> None:
+    st.subheader("Histórico de Partidas")
+    if not games:
+        st.info("Nenhuma partida pública com PGN foi encontrada para esse usuário.")
+        return
+
+    header = st.columns([3, 1, 1, 1, 1, 1])
+    header[0].markdown("**Jogadores**")
+    header[1].markdown("**Resultado**")
+    header[2].markdown("**Tempo**")
+    header[3].markdown("**Lances**")
+    header[4].markdown("**Data**")
+    header[5].markdown("**Ação**")
+
+    for index, game in enumerate(games):
+        row = st.container(border=True)
+        with row:
+            cols = st.columns([3, 1, 1, 1, 1, 1])
+            white = player_text(game.get("white", {}))
+            black = player_text(game.get("black", {}))
+            user_color = game.get("user_color")
+            marker_white = "👉 " if user_color == "white" else ""
+            marker_black = "👉 " if user_color == "black" else ""
+            cols[0].markdown(f"♙ {marker_white}{white}  \n♟ {marker_black}{black}")
+            cols[1].markdown(f"**{game.get('result') or '?'}**")
+            cols[2].write(game.get("time_class") or game.get("time_control") or "—")
+            cols[3].write(count_pgn_plies(game.get("pgn")))
+            cols[4].write(game.get("played_at") or "—")
+            if cols[5].button("Analizar", key=f"analyze_chesscom_{index}"):
+                payload = {
+                    "username": username,
+                    "pgn": game["pgn"],
+                    "url": game.get("url"),
+                    "max_moves": max_moves,
+                }
+                with st.spinner("Analisando apenas esta partida com Stockfish..."):
+                    data = api_post("/analyze/chesscom/game", payload, timeout=900)
+                st.session_state["game_id"] = data["game_id"]
+                st.success(f"Partida analisada: game_id={data['game_id']}")
+                st.rerun()
 
 def show_metrics(report: dict) -> None:
     accuracy = report.get("accuracy", {})
@@ -220,8 +275,8 @@ def show_game(game_id: int) -> None:
 with st.sidebar:
     st.header("Analisar")
     mode = st.radio("Origem", ["PGN", "Chess.com", "Abrir game_id"])
-    max_moves = st.number_input("Máximo de lances analisados", 1, 300, 30)
-    st.caption("Dica: use menos lances para uma primeira análise rápida com Stockfish.")
+    max_moves = DEFAULT_MAX_MOVES
+    st.caption(f"Stockfish analisará até {max_moves} meios-lances por partida.")
 
 try:
     if mode == "PGN":
@@ -234,28 +289,20 @@ try:
 
     elif mode == "Chess.com":
         username = st.text_input("Username Chess.com")
-        col1, col2 = st.columns(2)
-        year = col1.number_input("Ano", 2007, 2100, 2026)
-        month = col2.number_input("Mês", 1, 12, 1)
-        color = st.selectbox("Cor", [None, "white", "black"])
-        limit = st.number_input("Quantidade de partidas", 1, 5, 1)
-        if st.button("Importar e analisar", type="primary") and username:
-            payload = {
-                "username": username,
-                "year": year,
-                "month": month,
-                "color": color,
-                "limit": limit,
-                "max_moves": max_moves,
-            }
-            with st.spinner("Baixando PGN do Chess.com e analisando com Stockfish..."):
-                data = api_post("/analyze/chesscom", payload, timeout=900)
-            analyzed = data.get("analyzed") or []
-            if analyzed:
-                st.session_state["game_id"] = analyzed[0]["game_id"]
-                st.success(f"{len(analyzed)} partida(s) analisada(s). Abrindo a primeira.")
-            else:
-                st.warning("Nenhum PGN analisado retornou da Chess.com.")
+        if st.button("Buscar partidas", type="primary") and username:
+            with st.spinner("Buscando partidas públicas no Chess.com..."):
+                data = api_get(f"/players/{username}/chesscom-public-games?limit=20")
+            st.session_state["chesscom_username"] = username
+            st.session_state["chesscom_games"] = data.get("games") or []
+
+        stored_games = st.session_state.get("chesscom_games") or []
+        stored_username = st.session_state.get("chesscom_username") or username
+        if stored_games:
+            show_chesscom_games_panel(stored_username, stored_games, max_moves)
+        elif username:
+            st.info(
+                "Clique em **Buscar partidas** para listar partidas públicas antes de analisar."
+            )
 
     else:
         game_id_input = st.number_input("game_id", 1, step=1)
@@ -265,7 +312,7 @@ try:
     if st.session_state.get("game_id"):
         show_game(int(st.session_state["game_id"]))
     else:
-            st.info(
+        st.info(
             "Comece colando um PGN, importando do Chess.com ou abrindo um game_id já salvo."
         )
 except requests.HTTPError as exc:
