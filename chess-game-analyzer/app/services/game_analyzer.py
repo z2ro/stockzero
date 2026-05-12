@@ -12,10 +12,23 @@ from app.services.stockfish_engine import MATE_CP, StockfishEngine
 BOOK_PLIES = 8
 
 
-def _perspective_cp(cp: int | None, color: chess.Color) -> int | None:
-    if cp is None:
+def _white_cp(cp_from_side_to_move: int | None, turn: chess.Color) -> int | None:
+    if cp_from_side_to_move is None:
         return None
-    return cp if color == chess.WHITE else -cp
+    return cp_from_side_to_move if turn == chess.WHITE else -cp_from_side_to_move
+
+
+def _engine_lines(lines: list) -> list[dict]:
+    return [
+        {
+            "move_uci": line.move,
+            "move_san": line.san,
+            "score_cp": line.score_cp,
+            "mate": line.mate,
+            "pv": line.pv,
+        }
+        for line in lines
+    ]
 
 
 def _piece_count(board: chess.Board) -> int:
@@ -45,12 +58,12 @@ def analyze_game(
         before_board = board.copy(stack=False)
         played_san = board.san(move)
         before = engine.analyze_position(board, depth=depth, multipv=multipv)
-        before_player_cp = _perspective_cp(before.evaluation_cp, mover)
+        before_player_cp = before.evaluation_cp
         material_before = material_balance(board, mover)
 
         board.push(move)
         after = engine.analyze_position(board, depth=depth, multipv=multipv)
-        after_player_cp = _perspective_cp(after.evaluation_cp, mover)
+        after_player_cp = -after.evaluation_cp if after.evaluation_cp is not None else None
         material_after = material_balance(board, mover)
         cp_loss = None
         mate_swing = False
@@ -67,7 +80,14 @@ def analyze_game(
             is_book=ply <= BOOK_PLIES and cp_loss is not None and cp_loss <= 35,
             mate_swing=mate_swing,
         )
-        themes = detect_themes(before_board, board, move, phase, material_after - material_before, cp_loss)
+        themes = detect_themes(
+            before_board,
+            board,
+            move,
+            phase,
+            material_after - material_before,
+            cp_loss,
+        )
         item = {
             "ply": ply,
             "move_number": (ply + 1) // 2,
@@ -85,6 +105,7 @@ def analyze_game(
             "cp_loss": cp_loss,
             "classification": classification,
             "pv": before.pv,
+            "best_lines": _engine_lines(before.multipv),
             "themes": themes,
             "material_delta": material_after - material_before,
         }
@@ -94,7 +115,7 @@ def analyze_game(
             {
                 "ply": ply,
                 "move": played_san,
-                "white_cp": after.evaluation_cp,
+                "white_cp": _white_cp(after.evaluation_cp, board.turn),
                 "mate": after.mate,
             }
         )

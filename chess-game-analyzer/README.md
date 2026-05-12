@@ -96,7 +96,7 @@ Acesse <http://localhost:8501>. A interface permite colar PGN, buscar partidas p
 
 ### Revisão visual da partida
 
-No modo Chess.com, informe apenas o username e clique em **Buscar partidas**. O app mostra um painel de histórico com jogadores, resultado, controle de tempo, data e um botão **Analizar** em cada linha; apenas a partida escolhida é enviada para o Stockfish. Depois de analisar um PGN ou uma partida do painel, abra o `game_id` no Streamlit. A aba **Tabuleiro** reconstrói a partida inteira a partir do PGN salvo, permite navegar lance a lance, alternar orientação entre brancas/pretas e mostra ao lado a avaliação, melhor lance, temas e explicação do lance selecionado. As abas **Lances críticos** e **Plano de estudo** transformam o JSON bruto em cartões e sugestões mais fáceis de entender.
+No modo Chess.com, informe apenas o username e clique em **Buscar partidas**. O app mostra um painel de histórico com jogadores, resultado, controle de tempo, data e um botão **Analizar** em cada linha; apenas a partida escolhida é enviada para o Stockfish. Depois de analisar um PGN ou uma partida do painel, abra o `game_id` no Streamlit. A aba **Tabuleiro** reconstrói a partida inteira a partir do PGN salvo, permite navegar lance a lance, alternar orientação entre brancas/pretas e mostra ao lado a avaliação, melhor lance, temas e explicação do lance selecionado. No tabuleiro, a seta vermelha marca o lance jogado e as setas verde/azul/laranja mostram as principais opções do Stockfish. O painel lateral de **Lances críticos** e a aba **Plano de estudo** transformam o JSON bruto em cartões e sugestões mais fáceis de entender.
 
 ## Docker Compose
 

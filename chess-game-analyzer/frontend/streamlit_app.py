@@ -19,6 +19,7 @@ st.caption(
     "e explicações mais claras."
 )
 
+
 CLASS_EMOJI = {
     "Best": "✅",
     "Excellent": "🌟",
@@ -77,14 +78,69 @@ def positions_from_pgn(pgn: str) -> list[dict]:
     return positions
 
 
-def render_board(position: dict, orientation: chess.Color = chess.WHITE) -> None:
+def render_board(
+    position: dict,
+    orientation: chess.Color = chess.WHITE,
+    arrows: list[chess.svg.Arrow] | None = None,
+) -> None:
     svg = chess.svg.board(
         board=position["board"],
         lastmove=position.get("lastmove"),
+        arrows=arrows or [],
         orientation=orientation,
         size=430,
     )
     components.html(svg, height=450)
+
+
+def arrow_from_uci(uci: str | None, color: str) -> chess.svg.Arrow | None:
+    if not uci or len(uci) < 4:
+        return None
+    try:
+        return chess.svg.Arrow(
+            chess.parse_square(uci[:2]),
+            chess.parse_square(uci[2:4]),
+            color=color,
+        )
+    except ValueError:
+        return None
+
+
+def best_move_arrows(item: dict | None) -> list[chess.svg.Arrow]:
+    if not item:
+        return []
+
+    arrows: list[chess.svg.Arrow] = []
+    played_arrow = arrow_from_uci(item.get("played_uci"), "#e74c3c")
+    if played_arrow:
+        arrows.append(played_arrow)
+
+    colors = ["#7ac943", "#30a2ff", "#ffb000"]
+    seen_moves = {item.get("played_uci")}
+    for line, color in zip(item.get("best_lines") or [], colors, strict=False):
+        move_uci = line.get("move_uci")
+        if not move_uci or move_uci in seen_moves:
+            continue
+        arrow = arrow_from_uci(move_uci, color)
+        if arrow:
+            arrows.append(arrow)
+            seen_moves.add(move_uci)
+    return arrows
+
+
+def board_position_for_selection(
+    positions: list[dict],
+    item: dict | None,
+    selected: int,
+) -> dict:
+    if item and item.get("fen_before"):
+        return {
+            "label": f"Antes de {item.get('move_number')}. {item.get('played_san')}",
+            "board": chess.Board(item["fen_before"]),
+            "lastmove": None,
+            "ply": item.get("ply"),
+        }
+    return positions[selected]
 
 
 def move_analysis_by_ply(game: dict) -> dict[int, dict]:
@@ -145,13 +201,17 @@ def show_chesscom_games_panel(username: str, games: list[dict], max_moves: int) 
                 st.success(f"Partida analisada: game_id={data['game_id']}")
                 st.rerun()
 
+
 def show_metrics(report: dict) -> None:
     accuracy = report.get("accuracy", {})
     counts = report.get("counts", {})
     cols = st.columns(4)
     cols[0].metric("Precisão brancas", f"{accuracy.get('white', 0)}%")
     cols[1].metric("Precisão pretas", f"{accuracy.get('black', 0)}%")
-    blunders = counts.get("white", {}).get("Blunder", 0) + counts.get("black", {}).get("Blunder", 0)
+    blunders = (
+        counts.get("white", {}).get("Blunder", 0)
+        + counts.get("black", {}).get("Blunder", 0)
+    )
     cols[2].metric("Erros graves", blunders)
     cols[3].metric("Fase mais crítica", report.get("worst_phase_label") or "—")
 
@@ -185,7 +245,7 @@ def show_move_details(item: dict | None) -> None:
         st.markdown("**Linha sugerida:** " + " ".join(item["pv"][:8]))
 
 
-def show_critical_cards(report: dict) -> None:
+def show_critical_cards(report: dict, slider_key: str | None = None) -> None:
     cards = report.get("critical_cards") or []
     if not cards:
         st.success("Nenhum lance crítico encontrado no trecho analisado.")
@@ -200,6 +260,11 @@ def show_critical_cards(report: dict) -> None:
             st.markdown(f"**Dica de estudo:** {card.get('coach_tip')}")
             if card.get("themes"):
                 st.markdown("**Temas:** " + ", ".join(card["themes"]))
+            if slider_key and card.get("ply") is not None:
+                jump_key = f"jump_critical_{slider_key}_{card['ply']}"
+                if st.button("Ver no tabuleiro", key=jump_key):
+                    st.session_state[slider_key] = int(card["ply"])
+                    st.rerun()
 
 
 def show_study_plan(report: dict) -> None:
@@ -234,33 +299,47 @@ def show_game(game_id: int) -> None:
 
     positions = positions_from_pgn(pgn)
     analysis_by_ply = move_analysis_by_ply(game)
-    tab_board, tab_critical, tab_study, tab_raw = st.tabs(
-        ["🧩 Tabuleiro", "🚨 Lances críticos", "🎯 Plano de estudo", "📄 PGN/JSON"]
+    tab_board, tab_study, tab_raw = st.tabs(
+        ["🧩 Tabuleiro", "🎯 Plano de estudo", "📄 PGN/JSON"]
     )
 
     with tab_board:
         if not positions:
             st.warning("Não foi possível recriar o tabuleiro porque o PGN não está disponível.")
         else:
-            left, right = st.columns([1, 1])
+            left, right = st.columns([1.15, 0.85])
+            slider_key = f"target_ply_{game_id}"
             with left:
                 labels = [position["label"] for position in positions]
                 selected = st.slider(
                     "Navegue lance a lance",
                     0,
                     len(positions) - 1,
-                    len(positions) - 1,
+                    min(
+                        st.session_state.get(slider_key, len(positions) - 1),
+                        len(positions) - 1,
+                    ),
                     format="%d",
                 )
-                st.caption(labels[selected])
-                orientation_name = st.radio("Orientação", ["Brancas", "Pretas"], horizontal=True)
+                st.session_state[slider_key] = selected
+                selected_item = analysis_by_ply.get(positions[selected]["ply"])
+                board_position = board_position_for_selection(
+                    positions, selected_item, selected
+                )
+                st.caption(
+                    f"{labels[selected]} · setas: vermelho = lance jogado; "
+                    "verde/azul/laranja = melhores linhas Stockfish"
+                )
+                orientation_name = st.radio(
+                    "Orientação", ["Brancas", "Pretas"], horizontal=True
+                )
                 orientation = chess.WHITE if orientation_name == "Brancas" else chess.BLACK
-                render_board(positions[selected], orientation)
+                render_board(board_position, orientation, best_move_arrows(selected_item))
             with right:
-                show_move_details(analysis_by_ply.get(positions[selected]["ply"]))
-
-    with tab_critical:
-        show_critical_cards(report)
+                st.markdown("### Lance selecionado")
+                show_move_details(selected_item)
+                st.markdown("### Lances críticos")
+                show_critical_cards(report, slider_key=slider_key)
 
     with tab_study:
         show_study_plan(report)
