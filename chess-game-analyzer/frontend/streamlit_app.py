@@ -58,7 +58,8 @@ def inject_review_css() -> None:
             text-align: center; padding: 12px 6px; font-weight: 800; color: #e9e9e9;
         }
         .review-action.next { background: linear-gradient(#8cc45a, #5a9c3d); color: white; }
-        .move-table { width: 100%; border-collapse: collapse; font-size: .94rem; margin-top: 6px; }
+        .move-list { max-height: 330px; overflow-y: auto; margin-top: 6px; }
+        .move-table { width: 100%; border-collapse: collapse; font-size: .94rem; }
         .move-table td { padding: 6px 8px; border: 0; }
         .move-table tr:nth-child(odd) { background: #2b2a27; }
         .move-table .num { color: #aaa; width: 38px; text-align: right; }
@@ -73,6 +74,13 @@ def inject_review_css() -> None:
         .bottom-controls div {
             background: linear-gradient(#4a4946, #302f2d); border-radius: 7px;
             text-align: center; padding: 14px 0; font-weight: 900; font-size: 1.35rem;
+        }
+        div.stButton > button {
+            background: linear-gradient(#4a4946, #333230); color: #eee; border: 0;
+            border-radius: 6px; font-weight: 800; min-height: 42px; width: 100%;
+        }
+        div.stButton > button[kind="primary"] {
+            background: linear-gradient(#8cc45a, #5a9c3d); color: white;
         }
         </style>
         """,
@@ -180,16 +188,13 @@ def best_move_arrows(item: dict | None) -> list[chess.svg.Arrow]:
     if played_arrow:
         arrows.append(played_arrow)
 
-    colors = ["#7ac943", "#30a2ff", "#ffb000"]
-    seen_moves = {item.get("played_uci")}
-    for line, color in zip(item.get("best_lines") or [], colors, strict=False):
-        move_uci = line.get("move_uci")
-        if not move_uci or move_uci in seen_moves:
-            continue
-        arrow = arrow_from_uci(move_uci, color)
-        if arrow:
-            arrows.append(arrow)
-            seen_moves.add(move_uci)
+    best_uci = item.get("best_move_uci")
+    if not best_uci and item.get("best_lines"):
+        best_uci = item["best_lines"][0].get("move_uci")
+    if best_uci != item.get("played_uci"):
+        best_arrow = arrow_from_uci(best_uci, "#7ac943")
+        if best_arrow:
+            arrows.append(best_arrow)
     return arrows
 
 
@@ -410,7 +415,7 @@ def move_table_html(analysis_by_ply: dict[int, dict], selected_ply: int) -> str:
             f"{move_cell(black_item, selected_ply)}"
             "</tr>"
         )
-    return "<table class='move-table'>" + "".join(rows[:14]) + "</table>"
+    return "<div class='move-list'><table class='move-table'>" + "".join(rows) + "</table></div>"
 
 
 def eval_graph_svg(curve: list[dict], selected_ply: int) -> str:
@@ -449,12 +454,79 @@ def eval_graph_svg(curve: list[dict], selected_ply: int) -> str:
     """
 
 
+
+def clamp_ply(ply: int, max_ply: int) -> int:
+    return max(0, min(max_ply, ply))
+
+
+def set_target_ply(slider_key: str, ply: int, max_ply: int) -> None:
+    st.session_state[slider_key] = clamp_ply(ply, max_ply)
+
+
+def query_param_value(name: str) -> str | None:
+    value = st.query_params.get(name)
+    if isinstance(value, list):
+        return value[0] if value else None
+    return value
+
+
+def apply_keyboard_query(slider_key: str, max_ply: int) -> None:
+    nav_seq = query_param_value("nav")
+    ply_value = query_param_value("ply")
+    if not nav_seq or nav_seq == st.session_state.get(f"{slider_key}_nav_seq"):
+        return
+    try:
+        set_target_ply(slider_key, int(ply_value or 0), max_ply)
+        st.session_state[f"{slider_key}_nav_seq"] = nav_seq
+    except ValueError:
+        return
+
+
+def install_keyboard_navigation(selected_ply: int, max_ply: int) -> None:
+    components.html(
+        f"""
+        <script>
+        const reviewState = {{ selected: {selected_ply}, max: {max_ply} }};
+        window.parent.__cgaReviewState = reviewState;
+        if (!window.parent.__cgaKeyboardBound) {{
+          window.parent.__cgaKeyboardBound = true;
+          window.parent.document.addEventListener('keydown', (event) => {{
+            const tag = (event.target && event.target.tagName || '').toLowerCase();
+            if (['input', 'textarea', 'select'].includes(tag)) return;
+            const state = window.parent.__cgaReviewState;
+            if (!state) return;
+            let next = null;
+            if (event.key === 'ArrowRight' || event.key === 'l' || event.key === ' ') {{
+              next = state.selected + 1;
+            }} else if (event.key === 'ArrowLeft' || event.key === 'h') {{
+              next = state.selected - 1;
+            }} else if (event.key === 'Home') {{
+              next = 0;
+            }} else if (event.key === 'End') {{
+              next = state.max;
+            }}
+            if (next === null) return;
+            event.preventDefault();
+            next = Math.max(0, Math.min(state.max, next));
+            const url = new URL(window.parent.location.href);
+            url.searchParams.set('ply', String(next));
+            url.searchParams.set('nav', String(Date.now()));
+            window.parent.location.href = url.toString();
+          }});
+        }}
+        </script>
+        """,
+        height=0,
+        width=0,
+    )
+
 def render_review_panel(
     report: dict,
     analysis_by_ply: dict[int, dict],
     selected_item: dict | None,
     selected_ply: int,
     slider_key: str,
+    max_ply: int,
 ) -> None:
     st.markdown("<div class='review-panel'>", unsafe_allow_html=True)
     st.markdown("<div class='review-header'>⭐ Revisão da Partida 🔍</div>", unsafe_allow_html=True)
@@ -470,27 +542,43 @@ def render_review_panel(
             </span>
           </div>
         </div>
-        <div class="review-actions">
-          <div class="review-action">⭐ Melhor</div>
-          <div class="review-action">💡 Explicar</div>
-          <div class="review-action next">➜ Próximo</div>
-        </div>
         """,
         unsafe_allow_html=True,
     )
+
+    action_cols = st.columns(3)
+    best_clicked = action_cols[0].button("⭐ Melhor", key=f"best_{slider_key}")
+    explain_clicked = action_cols[1].button("💡 Explicar", key=f"explain_{slider_key}")
+    if action_cols[2].button("➜ Próximo", key=f"next_action_{slider_key}", type="primary"):
+        set_target_ply(slider_key, selected_ply + 1, max_ply)
+        st.rerun()
+
+    if best_clicked and selected_item:
+        best = selected_item.get("best_move_san") or "—"
+        best_line = " ".join(selected_item.get("pv") or []) or "Linha não disponível."
+        st.success(f"Melhor lance: {best}. Linha: {best_line}")
+    if explain_clicked:
+        show_move_details(selected_item)
+
     st.markdown(move_table_html(analysis_by_ply, selected_ply), unsafe_allow_html=True)
     st.markdown("#### Lances críticos")
     show_critical_cards(report, slider_key=slider_key)
     graph = eval_graph_svg(report.get("evaluation_curve") or [], selected_ply)
     st.markdown(f"<div class='eval-wrap'>{graph}</div>", unsafe_allow_html=True)
-    st.markdown(
-        """
-        <div class="bottom-controls">
-          <div>⏮</div><div>‹</div><div>▶</div><div>›</div><div>⏭</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+
+    control_cols = st.columns(5)
+    controls = [
+        ("⏮", 0),
+        ("‹", selected_ply - 1),
+        ("▶", selected_ply + 1),
+        ("›", selected_ply + 1),
+        ("⏭", max_ply),
+    ]
+    for index, (label, target) in enumerate(controls):
+        if control_cols[index].button(label, key=f"nav_{index}_{slider_key}"):
+            set_target_ply(slider_key, target, max_ply)
+            st.rerun()
+    st.caption("Atalhos: ←/→ para voltar/avançar, Home/End para início/fim.")
     st.markdown("</div>", unsafe_allow_html=True)
 
 
@@ -506,16 +594,20 @@ def show_game(game_id: int) -> None:
         return
 
     slider_key = f"target_ply_{game_id}"
+    max_ply = len(positions) - 1
     labels = [position["label"] for position in positions]
+    if slider_key not in st.session_state:
+        st.session_state[slider_key] = max_ply
+    apply_keyboard_query(slider_key, max_ply)
     selected = st.slider(
         "Navegue lance a lance",
         0,
-        len(positions) - 1,
-        min(st.session_state.get(slider_key, len(positions) - 1), len(positions) - 1),
+        max_ply,
         format="%d",
         label_visibility="collapsed",
+        key=slider_key,
     )
-    st.session_state[slider_key] = selected
+    install_keyboard_navigation(selected, max_ply)
     selected_item = analysis_by_ply.get(positions[selected]["ply"])
     board_position = board_position_for_selection(positions, selected_item, selected)
 
@@ -524,7 +616,7 @@ def show_game(game_id: int) -> None:
         render_player_bar(game.get("black"), game.get("black_rating"), "9:35")
         st.caption(
             f"{labels[selected]} · vermelho = lance jogado · "
-            "verde/azul/laranja = melhores opções Stockfish"
+            "verde = melhor opção Stockfish"
         )
         board_wrap = st.columns([0.04, 0.96], gap="small")
         with board_wrap[0]:
@@ -549,7 +641,9 @@ def show_game(game_id: int) -> None:
         render_player_bar(game.get("white"), game.get("white_rating"), "9:15", bottom=True)
 
     with panel_col:
-        render_review_panel(report, analysis_by_ply, selected_item, selected, slider_key)
+        render_review_panel(
+            report, analysis_by_ply, selected_item, selected, slider_key, max_ply
+        )
         with st.expander("🎯 Plano de estudo"):
             show_study_plan(report)
         with st.expander("📄 PGN / JSON"):
