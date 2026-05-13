@@ -27,7 +27,6 @@ from app.services.game_analyzer import analyze_game
 from app.services.pgn_parser import PgnValidationError, export_pgn, parse_pgn
 from app.services.report_generator import generate_report
 from app.services.storage import create_game_record, game_to_dict
-from app.services.study_recommender import recommend_study
 
 app = FastAPI(title="Chess Game Analyzer", version="0.1.0")
 
@@ -59,7 +58,6 @@ def _analyze_and_store(
 
     analysis = analyze_game(parsed.game, depth=depth, multipv=multipv, max_moves=max_moves)
     report = generate_report(parsed.metadata, analysis)
-    report["study_plan"] = recommend_study(report)
     stored = create_game_record(
         db,
         export_pgn(parsed.game),
@@ -220,6 +218,19 @@ def get_report(game_id: int, db: Annotated[Session, Depends(get_db)]) -> dict:
     return game_to_dict(game)["report"]
 
 
+@app.get("/games/{game_id}/coaching-report")
+def get_coaching_report(game_id: int, db: Annotated[Session, Depends(get_db)]) -> dict:
+    report = get_report(game_id, db)
+    return {
+        "player_summaries": report.get("player_summaries", {}),
+        "coaching_summary": report.get("coaching_summary", {}),
+        "study_plan": report.get("study_plan", {}),
+        "critical_moments": report.get("critical_moments", []),
+        "patterns": report.get("patterns", {}),
+        "phase_analysis": report.get("phase_analysis", {}),
+    }
+
+
 @app.get("/players/{username}/games", response_model=list[GameSummary])
 def player_games(username: str, db: Annotated[Session, Depends(get_db)]) -> list[Game]:
     stmt = (
@@ -246,7 +257,10 @@ def player_study_plan(username: str, db: Annotated[Session, Depends(get_db)]) ->
     for plan in plans:
         if not plan:
             continue
-        for theme in plan.get("priorities", []):
+        for item in plan.get("priorities", []):
+            theme = item.get("theme") if isinstance(item, dict) else item
+            if not theme:
+                continue
             priorities[theme] = priorities.get(theme, 0) + 1
     ordered = sorted(priorities, key=priorities.get, reverse=True)[:5]
     return {

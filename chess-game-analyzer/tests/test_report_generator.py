@@ -32,7 +32,11 @@ def test_report_includes_counts_biggest_error_and_curve():
     assert report["worst_phase"] == "middlegame"
     assert report["worst_phase_label"] == "meio-jogo"
     assert report["critical_cards"][0]["classification_label"] == "Erro grave"
-    assert "Revise primeiro" in report["coach_summary"]["headline"]
+    assert "Principal problema" in report["coach_summary"]["headline"]
+    assert "player_summaries" in report
+    assert "coaching_summary" in report
+    assert "study_plan" in report
+    assert "critical_moments" in report
 
 
 def test_report_card_preserves_human_explanation_sections():

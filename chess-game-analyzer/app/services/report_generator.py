@@ -1,5 +1,7 @@
 from collections import Counter, defaultdict
 
+from app.services.coaching_report_generator import generate_coaching_report
+
 CRITICAL = {"Inaccuracy", "Mistake", "Blunder", "Missed Win"}
 CLASS_LABELS_PT = {
     "Best": "Melhor lance",
@@ -117,7 +119,7 @@ def generate_report(metadata: dict, analysis: dict) -> dict:
         else f"{white_name} vs {black_name}: partida sem erros críticos no trecho analisado."
     )
 
-    return {
+    report = {
         "metadata": metadata,
         "accuracy": {
             "white": _accuracy(by_color["white"]),
@@ -141,3 +143,14 @@ def generate_report(metadata: dict, analysis: dict) -> dict:
             "top_cards": critical_cards,
         },
     }
+    coaching = generate_coaching_report(metadata, analysis)
+    report.update(coaching)
+    report["coach_summary"].update(
+        {
+            "headline": coaching["coaching_summary"].get("headline")
+            or report["coach_summary"]["headline"],
+            "main_takeaway": coaching["coaching_summary"].get("game_summary") or summary,
+            "main_lesson": coaching["coaching_summary"].get("main_lesson"),
+        }
+    )
+    return report

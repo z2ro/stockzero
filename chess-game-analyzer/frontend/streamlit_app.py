@@ -416,19 +416,91 @@ def show_critical_cards(report: dict, slider_key: str | None = None) -> None:
                     st.rerun()
 
 
+def _show_player_coaching(title: str, summary: dict) -> None:
+    st.markdown(f"### {title}")
+    st.markdown(f"**Jogador:** {summary.get('player') or '—'}")
+    st.markdown(f"**Principal problema:** {summary.get('main_weakness') or '—'}")
+    st.markdown(f"**Sugestão prática:** {summary.get('practical_suggestion') or '—'}")
+    st.markdown(f"**Fase mais crítica:** {summary.get('worst_phase_label') or '—'}")
+    if summary.get("strengths"):
+        st.markdown("**O que jogou bem**")
+        for strength in summary["strengths"]:
+            st.markdown(f"- {strength}")
+    if summary.get("weaknesses"):
+        st.markdown("**O que poderia melhorar**")
+        for weakness in summary["weaknesses"]:
+            st.markdown(f"- {weakness}")
+
+
 def show_study_plan(report: dict) -> None:
     plan = report.get("study_plan") or {}
-    priorities = plan.get("priorities") or []
-    if priorities:
-        st.markdown("### Prioridades")
-        st.write(" → ".join(priorities))
-    for category, suggestions in (plan.get("categories") or {}).items():
-        if not suggestions:
-            continue
-        st.markdown(f"#### {category}")
-        for suggestion in suggestions:
-            st.markdown(f"- **{suggestion['theme']}**: {suggestion['short_plan']}")
-            st.caption(suggestion["recommended_exercise"])
+    coaching = report.get("coaching_summary") or {}
+    summaries = report.get("player_summaries") or {}
+    critical = report.get("critical_moments") or []
+
+    st.markdown("### Resumo da partida")
+    st.write(coaching.get("game_summary") or plan.get("summary") or "—")
+    if coaching.get("headline"):
+        st.info(coaching["headline"])
+    if coaching.get("main_lesson"):
+        st.markdown(f"**Principal lição da partida:** {coaching['main_lesson']}")
+
+    cols = st.columns(2)
+    with cols[0]:
+        _show_player_coaching(
+            "O que as brancas poderiam ter jogado melhor", summaries.get("white") or {}
+        )
+    with cols[1]:
+        _show_player_coaching(
+            "O que as pretas poderiam ter jogado melhor", summaries.get("black") or {}
+        )
+
+    st.markdown("### Momentos críticos")
+    if critical:
+        for moment in critical[:5]:
+            with st.expander(f"{moment.get('move_ref')} — melhor: {moment.get('best_move')}"):
+                st.markdown(f"**O que tentou:** {moment.get('what_player_tried')}")
+                st.markdown(f"**Problema:** {moment.get('problem')}")
+                st.markdown(
+                    f"**Por que o melhor lance era melhor:** {moment.get('why_best_was_better')}"
+                )
+                st.markdown(
+                    f"**Prioridade da posição:** {', '.join(moment.get('position_priority') or [])}"
+                )
+                st.markdown(f"**Consequência prática:** {moment.get('practical_consequence')}")
+                st.markdown(f"**Tema de estudo:** {moment.get('study_theme')}")
+    else:
+        st.caption("Nenhum momento crítico suficiente para diagnóstico.")
+
+    st.markdown("### Plano de estudo personalizado")
+    for priority in plan.get("priorities") or []:
+        st.markdown(f"#### {priority.get('priority')}. {priority.get('theme')}")
+        st.write(priority.get("why_it_matters"))
+        if priority.get("examples_from_game"):
+            st.markdown("**Exemplos da partida**")
+            for example in priority["examples_from_game"]:
+                st.markdown(f"- {example}")
+        if priority.get("how_to_train"):
+            st.markdown("**Como treinar**")
+            for exercise in priority["how_to_train"]:
+                st.markdown(f"- {exercise}")
+        st.caption(
+            f"Exercício diário: {priority.get('daily_exercise')} · {priority.get('recommended_time')}"
+        )
+
+    st.markdown("### Plano por área")
+    for area, data in (plan.get("areas") or {}).items():
+        with st.expander(data.get("label") or area):
+            st.write(data.get("diagnosis"))
+            themes = data.get("themes") or []
+            if themes:
+                st.markdown("**Temas:** " + ", ".join(themes))
+            else:
+                st.caption("Sem temas recorrentes nesta área.")
+
+    st.markdown("### Exercícios recomendados")
+    for exercise in plan.get("recommended_exercises") or []:
+        st.markdown(f"- {exercise}")
 
 
 def format_player(name: str | None, rating: int | None) -> str:
