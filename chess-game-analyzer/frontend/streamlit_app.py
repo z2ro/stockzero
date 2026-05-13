@@ -284,10 +284,7 @@ def show_metrics(report: dict) -> None:
     cols = st.columns(4)
     cols[0].metric("Precisão brancas", f"{accuracy.get('white', 0)}%")
     cols[1].metric("Precisão pretas", f"{accuracy.get('black', 0)}%")
-    blunders = (
-        counts.get("white", {}).get("Blunder", 0)
-        + counts.get("black", {}).get("Blunder", 0)
-    )
+    blunders = counts.get("white", {}).get("Blunder", 0) + counts.get("black", {}).get("Blunder", 0)
     cols[2].metric("Erros graves", blunders)
     cols[3].metric("Fase mais crítica", report.get("worst_phase_label") or "—")
 
@@ -299,9 +296,7 @@ def show_move_details(item: dict | None) -> None:
 
     classification = item.get("classification")
     emoji = CLASS_EMOJI.get(classification, "•")
-    st.subheader(
-        f"{emoji} {item.get('move_number')}. {item.get('played_san')} — {classification}"
-    )
+    st.subheader(f"{emoji} {item.get('move_number')}. {item.get('played_san')} — {classification}")
     detail_cols = st.columns(3)
     loss = f"{item.get('cp_loss', 0)} cp" if item.get("cp_loss") is not None else "mate"
     detail_cols[0].metric("Perda", loss)
@@ -310,8 +305,61 @@ def show_move_details(item: dict | None) -> None:
 
     if item.get("explanation"):
         exp = item["explanation"]
-        st.markdown(f"**Por que piorou:** {exp.get('why_it_worsens')}")
-        st.markdown(f"**Ideia perdida:** {exp.get('missed_idea')}")
+        if exp.get("human_evaluation"):
+            st.info(f"Avaliação humana: {exp['human_evaluation']}")
+        st.markdown("**Situação antes do lance**")
+        st.write(exp.get("situation_before") or "Sem diagnóstico posicional disponível.")
+        st.markdown("**Problema do lance jogado**")
+        st.write(exp.get("why_it_worsens"))
+        st.markdown("**O que o melhor lance resolvia**")
+        st.write(exp.get("missed_idea"))
+
+        comparison = exp.get("direct_comparison") or []
+        if comparison:
+            st.markdown("**Comparação direta**")
+            st.table(
+                [
+                    {
+                        "Lance jogado": row.get("played"),
+                        "Melhor lance": row.get("best"),
+                    }
+                    for row in comparison
+                ]
+            )
+
+        if exp.get("opponent_plan"):
+            st.markdown("**Plano do adversário depois do erro**")
+            st.write(exp["opponent_plan"])
+        if exp.get("position_priorities"):
+            st.markdown("**Prioridade da posição**")
+            for index, priority in enumerate(exp["position_priorities"], start=1):
+                st.markdown(f"{index}. {priority}")
+        if exp.get("concrete_consequences"):
+            st.markdown("**Consequência prática**")
+            for consequence in exp["concrete_consequences"]:
+                st.markdown(f"- {consequence}")
+        if exp.get("priority_explanation"):
+            st.caption(exp["priority_explanation"])
+
+        if exp.get("fen_after_played") or exp.get("fen_after_best"):
+            st.markdown("**Comparação visual**")
+            visual_cols = st.columns(2)
+            if exp.get("fen_after_played"):
+                with visual_cols[0]:
+                    st.caption("Após o lance jogado")
+                    render_board(
+                        {"board": chess.Board(exp["fen_after_played"]), "lastmove": None},
+                        chess.WHITE,
+                        size=260,
+                    )
+            if exp.get("fen_after_best"):
+                with visual_cols[1]:
+                    st.caption("Após o melhor lance")
+                    render_board(
+                        {"board": chess.Board(exp["fen_after_best"]), "lastmove": None},
+                        chess.WHITE,
+                        size=260,
+                    )
     else:
         st.caption("Lance sem explicação crítica; use a avaliação e a PV como referência.")
 
@@ -332,8 +380,33 @@ def show_critical_cards(report: dict, slider_key: str | None = None) -> None:
         with st.expander(label):
             st.markdown(f"**Melhor lance:** `{card.get('best_move')}`")
             st.markdown(f"**Fase:** {card.get('phase_label')}")
-            st.markdown(f"**Resumo:** {card.get('short_reason')}")
-            st.markdown(f"**Dica de estudo:** {card.get('coach_tip')}")
+            if card.get("human_evaluation"):
+                st.info(f"Avaliação humana: {card.get('human_evaluation')}")
+            if card.get("situation_before"):
+                st.markdown(f"**Situação antes:** {card.get('situation_before')}")
+            st.markdown(f"**Problema:** {card.get('short_reason')}")
+            st.markdown(f"**O que o melhor lance resolvia:** {card.get('coach_tip')}")
+            if card.get("direct_comparison"):
+                st.markdown("**Comparação direta**")
+                st.table(
+                    [
+                        {
+                            "Lance jogado": row.get("played"),
+                            "Melhor lance": row.get("best"),
+                        }
+                        for row in card.get("direct_comparison")
+                    ]
+                )
+            if card.get("opponent_plan"):
+                st.markdown(f"**Plano do adversário:** {card.get('opponent_plan')}")
+            if card.get("position_priorities"):
+                st.markdown(
+                    "**Prioridade da posição:** " + " → ".join(card.get("position_priorities"))
+                )
+            if card.get("concrete_consequences"):
+                st.markdown("**Consequência prática:**")
+                for consequence in card.get("concrete_consequences"):
+                    st.markdown(f"- {consequence}")
             if card.get("themes"):
                 st.markdown("**Temas:** " + ", ".join(card["themes"]))
             if slider_key and card.get("ply") is not None:
@@ -356,7 +429,6 @@ def show_study_plan(report: dict) -> None:
         for suggestion in suggestions:
             st.markdown(f"- **{suggestion['theme']}**: {suggestion['short_plan']}")
             st.caption(suggestion["recommended_exercise"])
-
 
 
 def format_player(name: str | None, rating: int | None) -> str:
@@ -387,7 +459,11 @@ def coach_message(item: dict | None) -> str:
         return "Navegue pelos lances para revisar a posição com o treinador."
     best = item.get("best_move_san") or "a melhor linha"
     label = item.get("classification") or "Lance"
+    exp = item.get("explanation") or {}
+    priorities = exp.get("position_priorities") or []
     if item.get("cp_loss") is not None and item["cp_loss"] > 0:
+        if priorities:
+            return f"{item.get('played_san')} é {label.lower()}; prioridade: {priorities[0]}. Melhor era {best}."
         return f"{item.get('played_san')} é {label.lower()}; Stockfish preferia {best}."
     return f"{item.get('played_san')} está ok. Melhor referência: {best}."
 
@@ -435,9 +511,7 @@ def eval_graph_svg(curve: list[dict], selected_ply: int) -> str:
         y = height / 2 - (cp / 800) * (height / 2 - 8)
         points.append((x, y))
     polygon = (
-        f"0,{height} "
-        + " ".join(f"{x:.1f},{y:.1f}" for x, y in points)
-        + f" {width},{height}"
+        f"0,{height} " + " ".join(f"{x:.1f},{y:.1f}" for x, y in points) + f" {width},{height}"
     )
     polyline = " ".join(f"{x:.1f},{y:.1f}" for x, y in points)
     selected_x = 0
@@ -451,14 +525,13 @@ def eval_graph_svg(curve: list[dict], selected_ply: int) -> str:
     return f"""
     <svg width="100%" viewBox="0 0 {width} {height}" role="img">
       <rect width="{width}" height="{height}" fill="#3a3936"/>
-      <line x1="0" y1="{height/2}" x2="{width}" y2="{height/2}" stroke="#ddd" stroke-width="1" opacity=".7"/>
+      <line x1="0" y1="{height / 2}" x2="{width}" y2="{height / 2}" stroke="#ddd" stroke-width="1" opacity=".7"/>
       <polygon points="{polygon}" fill="#f4f4f4" opacity=".95"/>
       <polyline points="{polyline}" fill="none" stroke="#f4f4f4" stroke-width="2"/>
       {dots}
       <line x1="{selected_x:.1f}" y1="0" x2="{selected_x:.1f}" y2="{height}" stroke="#ff6f61" stroke-width="3"/>
     </svg>
     """
-
 
 
 def clamp_ply(ply: int, max_ply: int) -> int:
@@ -586,6 +659,7 @@ def render_move_list(
                         unsafe_allow_html=True,
                     )
 
+
 def render_review_panel(
     report: dict,
     analysis_by_ply: dict[int, dict],
@@ -601,7 +675,7 @@ def render_review_panel(
         <div class="coach-row">
           <div class="coach-avatar">👨‍🏫</div>
           <div class="coach-bubble">
-            {CLASS_EMOJI.get(selected_item.get('classification') if selected_item else '', '💡')}
+            {CLASS_EMOJI.get(selected_item.get("classification") if selected_item else "", "💡")}
             {escape(coach_message(selected_item))}
             <span style="float:right;background:#eee;padding:2px 8px;border-radius:3px;">
               {eval_badge(selected_item)}
@@ -683,17 +757,12 @@ def show_game(game_id: int) -> None:
     board_col, panel_col = st.columns([1.55, 1], gap="large")
     with board_col:
         render_player_bar(game.get("black"), game.get("black_rating"), "9:35")
-        st.caption(
-            f"{labels[selected]} · vermelho = lance jogado · "
-            "verde = melhor opção Stockfish"
-        )
+        st.caption(f"{labels[selected]} · vermelho = lance jogado · verde = melhor opção Stockfish")
         board_wrap = st.columns([0.04, 0.96], gap="small")
         with board_wrap[0]:
             current_eval = selected_item.get("eval_after_cp") if selected_item else None
             eval_text = eval_badge(selected_item) or "0.0"
-            fill_pct = 50 if current_eval is None else max(
-                5, min(95, 50 + current_eval / 20)
-            )
+            fill_pct = 50 if current_eval is None else max(5, min(95, 50 + current_eval / 20))
             st.markdown(
                 f"""
                 <div style="height:720px;background:#111;border-radius:3px;position:relative;">
@@ -710,9 +779,7 @@ def show_game(game_id: int) -> None:
         render_player_bar(game.get("white"), game.get("white_rating"), "9:15", bottom=True)
 
     with panel_col:
-        render_review_panel(
-            report, analysis_by_ply, selected_item, selected, slider_key, max_ply
-        )
+        render_review_panel(report, analysis_by_ply, selected_item, selected, slider_key, max_ply)
         with st.expander("🎯 Plano de estudo"):
             show_study_plan(report)
         with st.expander("📄 PGN / JSON"):
@@ -761,9 +828,7 @@ try:
     if st.session_state.get("game_id"):
         show_game(int(st.session_state["game_id"]))
     else:
-        st.info(
-            "Comece colando um PGN, importando do Chess.com ou abrindo um game_id já salvo."
-        )
+        st.info("Comece colando um PGN, importando do Chess.com ou abrindo um game_id já salvo.")
 except requests.HTTPError as exc:
     st.error(f"Erro da API: {exc.response.text}")
 except requests.RequestException as exc:

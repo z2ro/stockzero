@@ -8,10 +8,13 @@ CATEGORY_BY_THEME = {
     "cravada": "tactics",
     "descoberta": "tactics",
     "ataque duplo": "tactics",
+    "ataque ao rei": "tactics",
     "cálculo insuficiente": "tactics",
     "rei exposto": "strategy",
     "troca ruim": "strategy",
     "casa fraca": "strategy",
+    "controle central": "strategy",
+    "perda de tempo": "strategy",
     "conversão de vantagem": "strategy",
     "defesa passiva": "strategy",
     "final de peões": "endgames",
@@ -24,11 +27,24 @@ def _exercise_for(theme: str) -> str:
         "cálculo insuficiente": "Treine variações forçadas de 2 a 3 lances antes de qualquer captura ou xeque.",
         "erro de abertura": "Revise os planos típicos da abertura jogada e compare seus 10 primeiros lances.",
         "desenvolvimento atrasado": "Pratique partidas rápidas buscando desenvolver peças menores antes de ataques laterais.",
+        "perda de tempo": "Revise lances de peão lateral na abertura e pergunte se rei, centro ou desenvolvimento eram mais urgentes.",
+        "controle central": "Analise 10 posições marcando quem controla d4/e4/d5/e5 e qual lance muda esse controle.",
+        "ataque ao rei": "Resolva exercícios de ataque ao rei com foco em abrir linhas e trazer novas peças para o ataque.",
         "final de peões": "Revise oposição, quadrado do peão e peões passados por 20 minutos.",
         "rei exposto": "Estude padrões de segurança do rei e punições contra roque enfraquecido.",
         "troca ruim": "Analise trocas perguntando quem melhora a peça restante e o final resultante.",
     }
     return mapping.get(theme, f"Resolva exercícios focados em {theme} por 20 minutos.")
+
+
+def _short_plan_for(theme: str) -> str:
+    if theme in {"erro de abertura", "desenvolvimento atrasado", "perda de tempo"}:
+        return "Revise se seus lances críticos atrasaram desenvolvimento ou segurança do rei antes de procurar ataques laterais."
+    if theme in {"rei exposto", "ataque ao rei"}:
+        return "Estude como prioridade estratégica: tire o rei do centro, reduza linhas abertas e só depois busque ganhos secundários."
+    if theme == "controle central":
+        return "Compare o lance jogado com o melhor lance perguntando quem ganhou casas centrais e tempos de desenvolvimento."
+    return f"Estude {theme} por 20 minutos por dia e revise os exemplos da sua partida."
 
 
 def recommend_study(report: dict) -> dict:
@@ -50,7 +66,9 @@ def recommend_study(report: dict) -> dict:
 
     for color_counts in report.get("counts", {}).values():
         if color_counts.get("Blunder", 0) or color_counts.get("Mistake", 0):
-            theme_counter["cálculo insuficiente"] += color_counts.get("Blunder", 0) + color_counts.get("Mistake", 0)
+            theme_counter["cálculo insuficiente"] += color_counts.get(
+                "Blunder", 0
+            ) + color_counts.get("Mistake", 0)
 
     priorities = [theme for theme, _ in theme_counter.most_common(5)] or ["cálculo insuficiente"]
     grouped = {"opening": [], "tactics": [], "strategy": [], "endgames": [], "time_management": []}
@@ -61,7 +79,7 @@ def recommend_study(report: dict) -> dict:
                 "theme": theme,
                 "examples": examples.get(theme, []),
                 "recommended_exercise": _exercise_for(theme),
-                "short_plan": f"Estude {theme} por 20 minutos por dia e revise os exemplos da sua partida.",
+                "short_plan": _short_plan_for(theme),
             }
         )
 
