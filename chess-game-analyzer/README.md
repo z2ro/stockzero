@@ -85,18 +85,24 @@ Acesse:
 
 ## Interface Streamlit
 
+> O frontend deste repositório é uma aplicação Streamlit (`frontend/streamlit_app.py`). Não há projeto React/Vite/Tailwind neste código; por isso a organização de rotas e componentes foi implementada com funções de UI Streamlit, CSS global e query params (`page=games` e `page=analysis&game_id=...`).
+
 Com a API rodando:
 
 ```bash
 streamlit run frontend/streamlit_app.py
 ```
 
-Acesse <http://localhost:8501>. A interface permite colar PGN, buscar partidas públicas do Chess.com por username, escolher no painel qual partida analisar e revisar a análise em um tabuleiro navegável reconstruído diretamente do PGN salvo.
+Acesse <http://localhost:8501>. A interface permite colar PGN, buscar partidas públicas do Chess.com por username, escolher no painel qual partida analisar e revisar a análise em um tabuleiro navegável reconstruído diretamente do PGN salvo. A tela agora separa claramente a experiência em **Histórico / Importar** e **Análise atual**, evitando que o relatório seja renderizado abaixo da lista de partidas.
 
 
 ### Revisão visual da partida
 
-No modo Chess.com, informe apenas o username e clique em **Buscar partidas**. O app mostra um painel de histórico com jogadores, resultado, controle de tempo, data e um botão **Analizar** em cada linha; apenas a partida escolhida é enviada para o Stockfish. Depois de analisar um PGN ou uma partida do painel, abra o `game_id` no Streamlit. A aba **Tabuleiro** reconstrói a partida inteira a partir do PGN salvo, permite navegar lance a lance, alternar orientação entre brancas/pretas e mostra ao lado a avaliação, melhor lance, temas e explicação do lance selecionado. A tela de revisão usa um layout inspirado no Chess.com, com tabuleiro grande à esquerda, jogadores/relógios, barra de avaliação, painel lateral de treinador, lista de lances, gráfico de avaliação e controles de navegação. No tabuleiro, a seta vermelha marca o lance jogado e a seta verde mostra a melhor opção do Stockfish. O painel lateral tem botões funcionais para melhor lance, explicação, próximo lance, controles de início/voltar/avançar/fim, atalhos de teclado ←/→/Home/End e uma lista de lances dinâmica com rolagem; clicar em qualquer lance da lista leva a posição diretamente para o tabuleiro. Os lances críticos aparecem integrados à própria lista de lances e ao ajudante, enquanto a aba **Plano de estudo** transforma o JSON bruto em sugestões mais fáceis de entender.
+No modo Chess.com, informe apenas o username e clique em **Buscar partidas**. O app mostra cards modernos com jogadores, ratings, resultado, controle de tempo, data, quantidade de lances e botão **Analisar**. Ao clicar, a UI navega para a página dedicada da partida (`page=analysis&game_id=...`) com loading visual, sem empurrar o relatório para baixo da lista.
+
+A página de análise tem cabeçalho próprio com jogadores, ratings, resultado, abertura, precisão estimada e botão de voltar. A aba **Análise** destaca o tabuleiro grande à esquerda e o painel de treinador à direita; em telas menores, o layout fica vertical. O painel lateral mostra resumo rápido, melhor lance, linha recomendada, lista de lances, gráfico de avaliação e cards separados para problema do lance, prioridade da posição, consequência prática e plano correto. No tabuleiro, a seta vermelha marca o lance jogado e a seta verde mostra a melhor opção do Stockfish. Os atalhos ←/→/Home/End continuam disponíveis.
+
+A aba **Coaching report** transforma o plano de estudo em uma seção principal, com largura confortável, tipografia maior, cards por jogador, momentos críticos, padrões detectados, prioridades de treino, plano por área e exercícios recomendados.
 
 
 ## Coaching report pós-partida

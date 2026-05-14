@@ -14,79 +14,225 @@ st.set_page_config(page_title="Chess Game Analyzer", page_icon="♟️", layout=
 DEFAULT_API_URL = os.getenv("API_URL", "http://localhost:8000")
 DEFAULT_MAX_MOVES = int(os.getenv("DEFAULT_ANALYSIS_MAX_MOVES", "80"))
 API_URL = st.sidebar.text_input("API URL", DEFAULT_API_URL).rstrip("/")
-st.title("♟️ Chess Game Analyzer")
-st.caption(
-    "Analise PGNs ou partidas públicas do Chess.com com um tabuleiro navegável "
-    "e explicações mais claras."
-)
 
 
 def inject_review_css() -> None:
     st.markdown(
         """
         <style>
-        .stApp { background: #302e2c; color: #ddd; }
-        div[data-testid="stHeader"] { background: rgba(48, 46, 44, 0.96); }
-        .block-container { padding-top: 1rem; max-width: 1400px; }
-        .review-player {
-            background: #252421; border-radius: 6px; padding: 8px 12px;
-            display: flex; align-items: center; justify-content: space-between;
-            margin: 6px 0; color: #f1f1f1; font-weight: 700;
+        :root {
+            --bg: #0f172a;
+            --bg-soft: #111827;
+            --panel: rgba(30, 41, 59, 0.88);
+            --panel-strong: rgba(15, 23, 42, 0.96);
+            --border: rgba(148, 163, 184, 0.18);
+            --text: #e5e7eb;
+            --muted: #94a3b8;
+            --green: #22c55e;
+            --yellow: #f59e0b;
+            --red: #ef4444;
+            --blue: #38bdf8;
+            --radius: 22px;
         }
-        .review-player .rating { color: #b8b8b8; font-weight: 500; }
-        .review-clock {
-            background: #f1f1f1; color: #222; border-radius: 4px;
-            padding: 5px 14px; font-size: 1.35rem; font-weight: 800;
+        html, body, [data-testid="stAppViewContainer"], .stApp {
+            background:
+              radial-gradient(circle at top left, rgba(34,197,94,.10), transparent 32rem),
+              radial-gradient(circle at top right, rgba(56,189,248,.12), transparent 34rem),
+              linear-gradient(135deg, #0f172a 0%, #111827 48%, #18181b 100%);
+            color: var(--text);
         }
-        .review-panel {
-            background: #242321; border-radius: 8px; border: 1px solid #191817;
-            padding: 0 14px 14px 14px; box-shadow: 0 8px 24px rgba(0,0,0,.25);
+        div[data-testid="stHeader"], header[data-testid="stHeader"] {
+            height: 0 !important;
+            min-height: 0 !important;
+            background: transparent !important;
+            visibility: hidden;
         }
-        .review-header {
-            height: 46px; display: flex; align-items: center; justify-content: center;
-            border-bottom: 1px solid #383633; font-size: 1.05rem; font-weight: 800;
+        div[data-testid="stToolbar"], div[data-testid="stDecoration"], #MainMenu, footer {
+            display: none !important;
         }
-        .coach-row { display: flex; gap: 12px; align-items: center; margin: 18px 0; }
-        .coach-avatar { font-size: 4.2rem; line-height: 1; }
-        .coach-bubble {
-            background: #f6f6f6; color: #111; border-radius: 10px;
-            padding: 16px 18px; font-weight: 700; flex: 1; min-height: 62px;
+        section[data-testid="stSidebar"] {
+            background: rgba(2, 6, 23, .82);
+            border-right: 1px solid var(--border);
         }
-        .review-actions { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin: 10px 0; }
-        .review-action {
-            background: linear-gradient(#4a4946, #333230); border-radius: 5px;
-            text-align: center; padding: 12px 6px; font-weight: 800; color: #e9e9e9;
+        .block-container {
+            padding-top: 0 !important;
+            padding-bottom: 4rem;
+            max-width: 1440px;
         }
-        .review-action.next { background: linear-gradient(#8cc45a, #5a9c3d); color: white; }
-        .move-list { max-height: 330px; overflow-y: auto; margin-top: 6px; }
-        .move-table { width: 100%; border-collapse: collapse; font-size: .94rem; }
-        .move-table td { padding: 6px 8px; border: 0; }
-        .move-table tr:nth-child(odd) { background: #2b2a27; }
-        .move-table .num { color: #aaa; width: 38px; text-align: right; }
-        .move-table .selected { background: rgba(125, 176, 80, .28); color: #b8f27b; font-weight: 800; border-radius: 4px; }
-        .move-row { display: grid; grid-template-columns: 38px 1fr 1fr; gap: 6px; align-items: center; margin: 2px 0; }
-        .move-num { color: #aaa; text-align: right; padding-right: 6px; font-weight: 700; }
-        .critical-inline {
-            background: #332f2a; border-left: 3px solid #f0b84a; border-radius: 4px;
-            padding: 7px 9px; margin: 6px 0 8px 44px; font-size: .86rem;
-        }
-        .critical-card {
-            border: 1px solid #403f3b; border-radius: 6px; padding: 10px 12px;
-            margin: 8px 0; background: #1f1e1c;
-        }
-        .critical-card strong { color: #fff; }
-        .eval-wrap { background: #3a3936; border-radius: 2px; padding: 5px; margin-top: 14px; }
-        .bottom-controls { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-top: 12px; }
-        .bottom-controls div {
-            background: linear-gradient(#4a4946, #302f2d); border-radius: 7px;
-            text-align: center; padding: 14px 0; font-weight: 900; font-size: 1.35rem;
-        }
+        .main .block-container { padding-left: 2rem; padding-right: 2rem; }
+        h1, h2, h3 { letter-spacing: -0.03em; }
+        p, li, div { line-height: 1.58; }
         div.stButton > button {
-            background: linear-gradient(#4a4946, #333230); color: #eee; border: 0;
-            border-radius: 6px; font-weight: 800; min-height: 42px; width: 100%;
+            border: 1px solid rgba(148,163,184,.18);
+            border-radius: 14px;
+            min-height: 44px;
+            width: 100%;
+            color: #e5e7eb;
+            background: linear-gradient(180deg, rgba(51,65,85,.95), rgba(30,41,59,.95));
+            box-shadow: 0 12px 28px rgba(2,6,23,.18);
+            font-weight: 800;
+            transition: all .18s ease;
+        }
+        div.stButton > button:hover {
+            transform: translateY(-1px);
+            border-color: rgba(56,189,248,.45);
+            box-shadow: 0 18px 36px rgba(2,6,23,.28);
         }
         div.stButton > button[kind="primary"] {
-            background: linear-gradient(#8cc45a, #5a9c3d); color: white;
+            background: linear-gradient(135deg, #16a34a, #22c55e);
+            color: #052e16;
+            border: 0;
+        }
+        .app-shell { padding-top: 1.15rem; }
+        .hero {
+            border: 1px solid var(--border);
+            background: linear-gradient(135deg, rgba(15,23,42,.92), rgba(30,41,59,.74));
+            border-radius: 30px;
+            padding: 30px 34px;
+            margin: 0 0 26px;
+            box-shadow: 0 28px 80px rgba(2,6,23,.34);
+        }
+        .eyebrow {
+            color: #86efac;
+            text-transform: uppercase;
+            letter-spacing: .14em;
+            font-size: .78rem;
+            font-weight: 900;
+            margin-bottom: 8px;
+        }
+        .hero h1 {
+            margin: 0;
+            font-size: clamp(2.25rem, 5vw, 4.2rem);
+            line-height: .96;
+        }
+        .hero p {
+            max-width: 820px;
+            color: #cbd5e1;
+            font-size: 1.08rem;
+            margin: 18px 0 0;
+        }
+        .top-nav {
+            display:flex; gap:10px; align-items:center; justify-content:space-between;
+            margin: 12px 0 22px;
+        }
+        .pill {
+            display:inline-flex; align-items:center; gap:8px; padding:8px 12px;
+            border-radius:999px; background:rgba(15,23,42,.74);
+            border:1px solid var(--border); color:#cbd5e1; font-size:.88rem; font-weight:800;
+        }
+        .section-title {
+            display:flex; align-items:flex-end; justify-content:space-between; gap:1rem;
+            margin: 26px 0 16px;
+        }
+        .section-title h2 { margin:0; font-size:1.75rem; }
+        .section-title p { margin:0; color:var(--muted); }
+        .glass-card, .game-card, .analysis-card, .study-card {
+            border: 1px solid var(--border);
+            background: linear-gradient(180deg, rgba(30,41,59,.86), rgba(15,23,42,.82));
+            border-radius: var(--radius);
+            box-shadow: 0 18px 45px rgba(2,6,23,.25);
+        }
+        .game-card {
+            padding: 18px 20px;
+            margin: 10px 0 14px;
+            transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease;
+        }
+        .game-card:hover {
+            transform: translateY(-2px);
+            border-color: rgba(34,197,94,.44);
+            box-shadow: 0 24px 56px rgba(2,6,23,.38);
+        }
+        .players { font-weight:900; font-size:1.06rem; }
+        .player-line { display:flex; justify-content:space-between; gap:12px; margin:4px 0; }
+        .rating, .muted { color: var(--muted); font-weight: 600; }
+        .meta-grid { display:grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap:10px; margin-top:14px; }
+        .meta-item {
+            border:1px solid rgba(148,163,184,.12); border-radius:14px;
+            padding:9px 10px; background:rgba(15,23,42,.56);
+        }
+        .meta-label { color:var(--muted); font-size:.75rem; text-transform:uppercase; font-weight:900; letter-spacing:.08em; }
+        .meta-value { color:#f8fafc; font-weight:900; font-size:.96rem; }
+        .analysis-header {
+            border:1px solid var(--border); border-radius:28px;
+            background:linear-gradient(135deg, rgba(15,23,42,.94), rgba(30,41,59,.78));
+            padding:22px 24px; margin: 6px 0 24px;
+            box-shadow:0 22px 70px rgba(2,6,23,.3);
+        }
+        .match-title { font-size: clamp(1.6rem, 3vw, 2.6rem); font-weight:950; margin:0; }
+        .stat-row { display:grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap:12px; margin-top:18px; }
+        .stat-card {
+            padding:13px 14px; border-radius:18px; background:rgba(15,23,42,.62);
+            border:1px solid rgba(148,163,184,.12);
+        }
+        .stat-card small { color:var(--muted); text-transform:uppercase; letter-spacing:.08em; font-weight:900; }
+        .stat-card strong { display:block; font-size:1.16rem; margin-top:4px; }
+        .board-shell {
+            border:1px solid var(--border); border-radius:28px; padding:18px;
+            background:linear-gradient(180deg, rgba(30,41,59,.88), rgba(15,23,42,.92));
+            box-shadow: 0 28px 70px rgba(2,6,23,.36);
+        }
+        .board-caption { color:#cbd5e1; margin: 6px 0 12px; font-weight:700; }
+        .review-player {
+            background: rgba(15,23,42,.72); border: 1px solid rgba(148,163,184,.14);
+            border-radius: 16px; padding: 10px 14px;
+            display: flex; align-items: center; justify-content: space-between;
+            margin: 8px 0; color: #f8fafc; font-weight: 850;
+        }
+        .review-player .rating { color: #94a3b8; font-weight: 650; }
+        .review-clock {
+            background: rgba(248,250,252,.92); color: #0f172a; border-radius: 12px;
+            padding: 6px 14px; font-size: 1.05rem; font-weight: 950;
+        }
+        .review-panel {
+            background: linear-gradient(180deg, rgba(30,41,59,.92), rgba(15,23,42,.96));
+            border-radius: 28px; border: 1px solid var(--border);
+            padding: 18px; box-shadow: 0 24px 64px rgba(2,6,23,.33);
+        }
+        .review-header {
+            display: flex; align-items: center; justify-content: space-between;
+            border-bottom: 1px solid rgba(148,163,184,.16);
+            padding-bottom: 12px; margin-bottom: 14px;
+            font-size: 1.18rem; font-weight: 950;
+        }
+        .coach-row { display: flex; gap: 14px; align-items: flex-start; margin: 16px 0; }
+        .coach-avatar { font-size: 2.5rem; line-height: 1; }
+        .coach-bubble {
+            background: rgba(15,23,42,.74); color: #e2e8f0; border:1px solid rgba(148,163,184,.14);
+            border-radius: 20px; padding: 16px 18px; font-weight: 750; flex: 1; min-height: 70px;
+        }
+        .analysis-card { padding: 16px; margin: 12px 0; }
+        .detail-grid { display:grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap:12px; margin:12px 0; }
+        .detail-card {
+            border:1px solid rgba(148,163,184,.12); border-radius:18px; padding:14px;
+            background:rgba(15,23,42,.58);
+        }
+        .detail-card h4 { margin:0 0 6px; font-size:.92rem; color:#bfdbfe; }
+        .detail-card p { margin:0; color:#e5e7eb; }
+        .move-num { color: #94a3b8; text-align: right; padding-right: 6px; font-weight: 800; }
+        .critical-inline {
+            background: rgba(245,158,11,.10); border-left: 3px solid #f59e0b; border-radius: 12px;
+            padding: 8px 10px; margin: 6px 0 8px 44px; font-size: .88rem; color:#fde68a;
+        }
+        .eval-wrap { background: rgba(15,23,42,.66); border-radius: 16px; padding: 8px; margin-top: 16px; border:1px solid rgba(148,163,184,.10); }
+        .study-card { padding: 22px; margin: 16px 0; }
+        .study-card h3 { margin-top:0; }
+        .pattern-badge {
+            display:inline-flex; align-items:center; gap:8px; border-radius:999px;
+            padding:7px 11px; margin:4px 6px 4px 0;
+            border:1px solid rgba(148,163,184,.16); background:rgba(15,23,42,.64);
+            color:#cbd5e1; font-weight:800; font-size:.86rem;
+        }
+        .skeleton {
+            height: 124px; border-radius: 22px; margin: 12px 0;
+            background: linear-gradient(90deg, rgba(30,41,59,.7), rgba(51,65,85,.9), rgba(30,41,59,.7));
+            background-size: 240% 100%; animation: shimmer 1.4s infinite;
+            border:1px solid rgba(148,163,184,.12);
+        }
+        @keyframes shimmer { 0% { background-position: 100% 0; } 100% { background-position: -100% 0; } }
+        @media (max-width: 900px) {
+            .main .block-container { padding-left: 1rem; padding-right: 1rem; }
+            .hero { padding: 22px; border-radius: 24px; }
+            .meta-grid, .stat-row, .detail-grid { grid-template-columns: 1fr; }
         }
         </style>
         """,
@@ -236,45 +382,123 @@ def player_text(player: dict) -> str:
     return f"{username}{rating_text}"
 
 
+def set_app_page(page: str, game_id: int | None = None) -> None:
+    st.session_state["app_page"] = page
+    if game_id is not None:
+        st.session_state["game_id"] = int(game_id)
+    params = {"page": page}
+    if game_id is not None:
+        params["game_id"] = str(game_id)
+    st.query_params.clear()
+    st.query_params.update(params)
+
+
+def current_page() -> str:
+    query_page = st.query_params.get("page")
+    if query_page in {"games", "analysis"}:
+        st.session_state["app_page"] = query_page
+    if st.query_params.get("game_id"):
+        try:
+            st.session_state["game_id"] = int(st.query_params["game_id"])
+            st.session_state["app_page"] = "analysis"
+        except ValueError:
+            pass
+    return st.session_state.get("app_page", "games")
+
+
+def render_hero(title: str, subtitle: str, eyebrow: str = "Chess Game Analyzer") -> None:
+    st.markdown(
+        f"""
+        <div class="app-shell">
+          <div class="hero">
+            <div class="eyebrow">{escape(eyebrow)}</div>
+            <h1>{escape(title)}</h1>
+            <p>{escape(subtitle)}</p>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def section_title(title: str, subtitle: str = "") -> None:
+    st.markdown(
+        f"""
+        <div class="section-title">
+          <div>
+            <h2>{escape(title)}</h2>
+            <p>{escape(subtitle)}</p>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_skeleton_cards(count: int = 3) -> None:
+    for _ in range(count):
+        st.markdown('<div class="skeleton"></div>', unsafe_allow_html=True)
+
+
+def game_card_html(game: dict, username: str) -> str:
+    white = game.get("white", {})
+    black = game.get("black", {})
+    marker_white = "•" if game.get("user_color") == "white" else ""
+    marker_black = "•" if game.get("user_color") == "black" else ""
+    plies = count_pgn_plies(game.get("pgn"))
+    return f"""
+    <div class="game-card">
+      <div class="players">
+        <div class="player-line"><span>♙ {escape(marker_white)} {escape(player_text(white))}</span><span class="muted">Brancas</span></div>
+        <div class="player-line"><span>♟ {escape(marker_black)} {escape(player_text(black))}</span><span class="muted">Pretas</span></div>
+      </div>
+      <div class="meta-grid">
+        <div class="meta-item"><div class="meta-label">Resultado</div><div class="meta-value">{escape(str(game.get("result") or "?"))}</div></div>
+        <div class="meta-item"><div class="meta-label">Ritmo</div><div class="meta-value">{escape(str(game.get("time_class") or game.get("time_control") or "—"))}</div></div>
+        <div class="meta-item"><div class="meta-label">Lances</div><div class="meta-value">{plies}</div></div>
+        <div class="meta-item"><div class="meta-label">Data</div><div class="meta-value">{escape(str(game.get("played_at") or "—"))}</div></div>
+      </div>
+    </div>
+    """
+
+
 def show_chesscom_games_panel(username: str, games: list[dict], max_moves: int) -> None:
-    st.subheader("Histórico de Partidas")
+    section_title(
+        "Histórico de partidas",
+        "Escolha uma partida para abrir uma análise dedicada, sem empurrar o relatório para baixo da lista.",
+    )
     if not games:
-        st.info("Nenhuma partida pública com PGN foi encontrada para esse usuário.")
+        st.markdown(
+            """
+            <div class="study-card">
+              <h3>Nenhuma partida encontrada</h3>
+              <p class="muted">Não encontramos partidas públicas com PGN para esse usuário. Tente outro username ou cole um PGN manualmente.</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
         return
 
-    header = st.columns([3, 1, 1, 1, 1, 1])
-    header[0].markdown("**Jogadores**")
-    header[1].markdown("**Resultado**")
-    header[2].markdown("**Tempo**")
-    header[3].markdown("**Lances**")
-    header[4].markdown("**Data**")
-    header[5].markdown("**Ação**")
-
     for index, game in enumerate(games):
-        row = st.container(border=True)
-        with row:
-            cols = st.columns([3, 1, 1, 1, 1, 1])
-            white = player_text(game.get("white", {}))
-            black = player_text(game.get("black", {}))
-            user_color = game.get("user_color")
-            marker_white = "👉 " if user_color == "white" else ""
-            marker_black = "👉 " if user_color == "black" else ""
-            cols[0].markdown(f"♙ {marker_white}{white}  \n♟ {marker_black}{black}")
-            cols[1].markdown(f"**{game.get('result') or '?'}**")
-            cols[2].write(game.get("time_class") or game.get("time_control") or "—")
-            cols[3].write(count_pgn_plies(game.get("pgn")))
-            cols[4].write(game.get("played_at") or "—")
-            if cols[5].button("Analizar", key=f"analyze_chesscom_{index}"):
+        cols = st.columns([0.78, 0.22], gap="medium")
+        with cols[0]:
+            st.markdown(game_card_html(game, username), unsafe_allow_html=True)
+        with cols[1]:
+            st.write("")
+            st.write("")
+            if st.button("Analisar", key=f"analyze_chesscom_{index}", type="primary"):
                 payload = {
                     "username": username,
                     "pgn": game["pgn"],
                     "url": game.get("url"),
                     "max_moves": max_moves,
                 }
-                with st.spinner("Analisando apenas esta partida com Stockfish..."):
-                    data = api_post("/analyze/chesscom/game", payload, timeout=900)
-                st.session_state["game_id"] = data["game_id"]
-                st.success(f"Partida analisada: game_id={data['game_id']}")
+                placeholder = st.empty()
+                with placeholder.container():
+                    render_skeleton_cards(1)
+                    st.caption("Stockfish está analisando a partida selecionada…")
+                data = api_post("/analyze/chesscom/game", payload, timeout=900)
+                set_app_page("analysis", data["game_id"])
                 st.rerun()
 
 
@@ -796,10 +1020,62 @@ def render_review_panel(
     st.markdown("</div>", unsafe_allow_html=True)
 
 
+def render_analysis_header(game: dict, report: dict) -> None:
+    accuracy = report.get("accuracy", {})
+    white = f"{game.get('white') or 'Brancas'}" + (
+        f" ({game.get('white_rating')})" if game.get("white_rating") else ""
+    )
+    black = f"{game.get('black') or 'Pretas'}" + (
+        f" ({game.get('black_rating')})" if game.get("black_rating") else ""
+    )
+    st.markdown(
+        f"""
+        <div class="analysis-header">
+          <div class="eyebrow">Análise dedicada · game_id {game.get("id")}</div>
+          <h1 class="match-title">{escape(white)} vs {escape(black)}</h1>
+          <p class="muted">{escape(str(game.get("opening") or "Abertura desconhecida"))} · {escape(str(game.get("result") or "Resultado não informado"))}</p>
+          <div class="stat-row">
+            <div class="stat-card"><small>Precisão brancas</small><strong>{accuracy.get("white", 0)}%</strong></div>
+            <div class="stat-card"><small>Precisão pretas</small><strong>{accuracy.get("black", 0)}%</strong></div>
+            <div class="stat-card"><small>Data</small><strong>{escape(str(game.get("played_at") or "—"))}</strong></div>
+            <div class="stat-card"><small>Tempo</small><strong>{escape(str(game.get("time_control") or "—"))}</strong></div>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_explanation_cards(item: dict | None) -> None:
+    if not item or not item.get("explanation"):
+        return
+    exp = item["explanation"]
+    cards = [
+        ("Problema do lance", exp.get("why_it_worsens")),
+        ("Prioridade da posição", ", ".join(exp.get("position_priorities") or [])),
+        ("Consequência prática", "; ".join(exp.get("concrete_consequences") or [])),
+        ("Plano correto", exp.get("missed_idea")),
+    ]
+    html = '<div class="detail-grid">'
+    for title, text in cards:
+        if text:
+            html += (
+                f'<div class="detail-card"><h4>{escape(title)}</h4><p>{escape(str(text))}</p></div>'
+            )
+    html += "</div>"
+    st.markdown(html, unsafe_allow_html=True)
+
+
 def show_game(game_id: int) -> None:
     game = api_get(f"/games/{game_id}")
     report = game.get("report") or {}
     pgn = game.get("pgn") or ""
+
+    if st.button("← Voltar para partidas", key=f"back_to_games_{game_id}"):
+        set_app_page("games")
+        st.rerun()
+
+    render_analysis_header(game, report)
 
     positions = positions_from_pgn(pgn)
     analysis_by_ply = move_analysis_by_ply(game)
@@ -813,94 +1089,153 @@ def show_game(game_id: int) -> None:
     if slider_key not in st.session_state:
         st.session_state[slider_key] = max_ply
     apply_keyboard_query(slider_key, max_ply)
-    selected = st.slider(
-        "Navegue lance a lance",
-        0,
-        max_ply,
-        value=st.session_state[slider_key],
-        format="%d",
-        label_visibility="collapsed",
-    )
-    st.session_state[slider_key] = selected
-    install_keyboard_navigation(selected, max_ply)
-    selected_item = analysis_by_ply.get(positions[selected]["ply"])
-    board_position = board_position_for_selection(positions, selected_item, selected)
 
-    board_col, panel_col = st.columns([1.55, 1], gap="large")
-    with board_col:
-        render_player_bar(game.get("black"), game.get("black_rating"), "9:35")
-        st.caption(f"{labels[selected]} · vermelho = lance jogado · verde = melhor opção Stockfish")
-        board_wrap = st.columns([0.04, 0.96], gap="small")
-        with board_wrap[0]:
-            current_eval = selected_item.get("eval_after_cp") if selected_item else None
-            eval_text = eval_badge(selected_item) or "0.0"
-            fill_pct = 50 if current_eval is None else max(5, min(95, 50 + current_eval / 20))
+    analysis_tab, coaching_tab, data_tab = st.tabs(["♟️ Análise", "🎯 Coaching report", "📄 Dados"])
+
+    with analysis_tab:
+        selected = st.slider(
+            "Navegue lance a lance",
+            0,
+            max_ply,
+            value=st.session_state[slider_key],
+            format="%d",
+            label_visibility="collapsed",
+        )
+        st.session_state[slider_key] = selected
+        install_keyboard_navigation(selected, max_ply)
+        selected_item = analysis_by_ply.get(positions[selected]["ply"])
+        board_position = board_position_for_selection(positions, selected_item, selected)
+
+        board_col, panel_col = st.columns([1.35, 0.9], gap="large")
+        with board_col:
+            st.markdown('<div class="board-shell">', unsafe_allow_html=True)
+            render_player_bar(game.get("black"), game.get("black_rating"), "--:--")
             st.markdown(
-                f"""
-                <div style="height:720px;background:#111;border-radius:3px;position:relative;">
-                  <div style="position:absolute;bottom:0;width:100%;height:{fill_pct}%;background:#f5f5f5;"></div>
-                  <div style="position:absolute;top:6px;left:2px;font-size:.75rem;color:#ddd;">
-                    {eval_text}
-                  </div>
-                </div>
-                """,
+                f'<div class="board-caption">{escape(labels[selected])} · vermelho = lance jogado · verde = melhor opção Stockfish</div>',
                 unsafe_allow_html=True,
             )
-        with board_wrap[1]:
-            render_board(board_position, chess.WHITE, best_move_arrows(selected_item), size=720)
-        render_player_bar(game.get("white"), game.get("white_rating"), "9:15", bottom=True)
+            board_wrap = st.columns([0.045, 0.955], gap="small")
+            with board_wrap[0]:
+                current_eval = selected_item.get("eval_after_cp") if selected_item else None
+                eval_text = eval_badge(selected_item) or "0.0"
+                fill_pct = 50 if current_eval is None else max(5, min(95, 50 + current_eval / 20))
+                st.markdown(
+                    f"""
+                    <div style="height:min(72vh,720px);background:#020617;border-radius:14px;position:relative;border:1px solid rgba(148,163,184,.14);overflow:hidden;">
+                      <div style="position:absolute;bottom:0;width:100%;height:{fill_pct}%;background:#f8fafc;"></div>
+                      <div style="position:absolute;top:8px;left:3px;font-size:.72rem;color:#94a3b8;font-weight:900;">
+                        {eval_text}
+                      </div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+            with board_wrap[1]:
+                render_board(board_position, chess.WHITE, best_move_arrows(selected_item), size=720)
+            render_player_bar(game.get("white"), game.get("white_rating"), "--:--", bottom=True)
+            st.markdown("</div>", unsafe_allow_html=True)
 
-    with panel_col:
-        render_review_panel(report, analysis_by_ply, selected_item, selected, slider_key, max_ply)
-        with st.expander("🎯 Plano de estudo"):
-            show_study_plan(report)
-        with st.expander("📄 PGN / JSON"):
-            st.download_button("Baixar PGN", pgn, file_name=f"game_{game_id}.pgn")
-            st.text_area("PGN", pgn, height=180)
-            st.json(game)
+        with panel_col:
+            render_review_panel(
+                report, analysis_by_ply, selected_item, selected, slider_key, max_ply
+            )
+            render_explanation_cards(selected_item)
+
+    with coaching_tab:
+        show_study_plan(report)
+
+    with data_tab:
+        st.download_button("Baixar PGN", pgn, file_name=f"game_{game_id}.pgn")
+        st.text_area("PGN", pgn, height=260)
+        st.json(game)
 
 
 with st.sidebar:
-    st.header("Analisar")
-    mode = st.radio("Origem", ["PGN", "Chess.com", "Abrir game_id"])
+    st.markdown("### ♟️ Chess Game Analyzer")
+    page_choice = st.radio(
+        "Navegação",
+        ["games", "analysis"],
+        format_func=lambda value: "Histórico / Importar" if value == "games" else "Análise atual",
+        index=0 if current_page() == "games" else 1,
+    )
+    if page_choice != current_page():
+        set_app_page(page_choice)
+        st.rerun()
     max_moves = DEFAULT_MAX_MOVES
     st.caption(f"Stockfish analisará até {max_moves} meios-lances por partida.")
 
-try:
-    if mode == "PGN":
-        pgn = st.text_area("Cole o PGN", height=260)
-        if st.button("Analisar PGN", type="primary") and pgn.strip():
-            with st.spinner("Analisando com Stockfish..."):
-                data = api_post("/analyze/pgn", {"pgn": pgn, "max_moves": max_moves})
-            st.session_state["game_id"] = data["game_id"]
-            st.success(f"Análise criada: game_id={data['game_id']}")
 
-    elif mode == "Chess.com":
-        username = st.text_input("Username Chess.com")
+def show_games_page(max_moves: int) -> None:
+    render_hero(
+        "Análise de xadrez com coaching pós-partida",
+        "Importe PGNs ou partidas públicas do Chess.com e abra cada análise em uma página dedicada, com tabuleiro grande, explicações humanas e plano de estudo premium.",
+    )
+
+    source_tab, chesscom_tab, open_tab = st.tabs(
+        ["📋 Colar PGN", "🌐 Chess.com", "#️⃣ Abrir game_id"]
+    )
+
+    with source_tab:
+        section_title("Analisar PGN", "Cole uma partida e abra a análise em uma página própria.")
+        pgn = st.text_area("PGN", height=260, placeholder='[Event "Casual"]\n\n1. e4 e5 2. Nf3 *')
+        if st.button("Analisar PGN", type="primary") and pgn.strip():
+            placeholder = st.empty()
+            with placeholder.container():
+                render_skeleton_cards(2)
+                st.caption("Criando análise dedicada…")
+            data = api_post("/analyze/pgn", {"pgn": pgn, "max_moves": max_moves})
+            set_app_page("analysis", data["game_id"])
+            st.rerun()
+
+    with chesscom_tab:
+        section_title(
+            "Buscar partidas Chess.com",
+            "A lista fica limpa; ao analisar, você navega para a página da partida.",
+        )
+        username = st.text_input(
+            "Username Chess.com", value=st.session_state.get("chesscom_username", "")
+        )
         if st.button("Buscar partidas", type="primary") and username:
-            with st.spinner("Buscando partidas públicas no Chess.com..."):
-                data = api_get(f"/players/{username}/chesscom-public-games?limit=20")
+            placeholder = st.empty()
+            with placeholder.container():
+                render_skeleton_cards(3)
+            data = api_get(f"/players/{username}/chesscom-public-games?limit=20")
             st.session_state["chesscom_username"] = username
             st.session_state["chesscom_games"] = data.get("games") or []
+            placeholder.empty()
 
         stored_games = st.session_state.get("chesscom_games") or []
         stored_username = st.session_state.get("chesscom_username") or username
         if stored_games:
             show_chesscom_games_panel(stored_username, stored_games, max_moves)
         elif username:
-            st.info(
-                "Clique em **Buscar partidas** para listar partidas públicas antes de analisar."
+            st.markdown(
+                """
+                <div class="study-card">
+                  <h3>Pronto para buscar</h3>
+                  <p class="muted">Clique em buscar para carregar cards modernos com partidas públicas.</p>
+                </div>
+                """,
+                unsafe_allow_html=True,
             )
 
-    else:
+    with open_tab:
+        section_title(
+            "Abrir análise existente",
+            "Use um game_id salvo para ir diretamente à página de análise.",
+        )
         game_id_input = st.number_input("game_id", 1, step=1)
-        if st.button("Abrir partida"):
-            st.session_state["game_id"] = int(game_id_input)
+        if st.button("Abrir análise", type="primary"):
+            set_app_page("analysis", int(game_id_input))
+            st.rerun()
 
-    if st.session_state.get("game_id"):
+
+try:
+    page = current_page()
+    if page == "analysis" and st.session_state.get("game_id"):
         show_game(int(st.session_state["game_id"]))
     else:
-        st.info("Comece colando um PGN, importando do Chess.com ou abrindo um game_id já salvo.")
+        show_games_page(max_moves)
 except requests.HTTPError as exc:
     st.error(f"Erro da API: {exc.response.text}")
 except requests.RequestException as exc:
