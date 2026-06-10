@@ -1,5 +1,7 @@
 from collections import Counter, defaultdict
 
+from app.services.coaching_report_generator import generate_coaching_report
+
 CRITICAL = {"Inaccuracy", "Mistake", "Blunder", "Missed Win"}
 CLASS_LABELS_PT = {
     "Best": "Melhor lance",
@@ -59,10 +61,19 @@ def _critical_card(item: dict) -> dict:
         "best_move": best,
         "loss": _friendly_cp(item.get("cp_loss")),
         "themes": themes,
+        "situation_before": explanation.get("situation_before"),
         "short_reason": explanation.get("why_it_worsens")
         or f"O lance {item.get('played_san')} piorou a avaliação em relação a {best}.",
         "coach_tip": explanation.get("missed_idea")
         or "Revise a posição no tabuleiro e compare com a melhor linha.",
+        "direct_comparison": explanation.get("direct_comparison") or [],
+        "opponent_plan": explanation.get("opponent_plan"),
+        "position_priorities": explanation.get("position_priorities") or [],
+        "priority_explanation": explanation.get("priority_explanation"),
+        "concrete_consequences": explanation.get("concrete_consequences") or [],
+        "human_evaluation": explanation.get("human_evaluation"),
+        "fen_after_played": explanation.get("fen_after_played"),
+        "fen_after_best": explanation.get("fen_after_best"),
         "pv": item.get("pv") or [],
         "ply": item.get("ply"),
         "move_number": item.get("move_number"),
@@ -108,7 +119,7 @@ def generate_report(metadata: dict, analysis: dict) -> dict:
         else f"{white_name} vs {black_name}: partida sem erros críticos no trecho analisado."
     )
 
-    return {
+    report = {
         "metadata": metadata,
         "accuracy": {
             "white": _accuracy(by_color["white"]),
@@ -132,3 +143,14 @@ def generate_report(metadata: dict, analysis: dict) -> dict:
             "top_cards": critical_cards,
         },
     }
+    coaching = generate_coaching_report(metadata, analysis)
+    report.update(coaching)
+    report["coach_summary"].update(
+        {
+            "headline": coaching["coaching_summary"].get("headline")
+            or report["coach_summary"]["headline"],
+            "main_takeaway": coaching["coaching_summary"].get("game_summary") or summary,
+            "main_lesson": coaching["coaching_summary"].get("main_lesson"),
+        }
+    )
+    return report

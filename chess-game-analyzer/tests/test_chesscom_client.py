@@ -25,7 +25,7 @@ def test_summarize_game_for_review_panel():
     game = {
         "uuid": "abc",
         "url": "https://www.chess.com/game/live/abc",
-        "pgn": "[Event \"Test\"]\n\n1. e4 1-0",
+        "pgn": '[Event "Test"]\n\n1. e4 1-0',
         "time_class": "rapid",
         "end_time": 1710000000,
         "white": {"username": "Alice", "rating": 1500, "result": "win"},
@@ -38,3 +38,37 @@ def test_summarize_game_for_review_panel():
     assert summary["result"] == "1-0"
     assert summary["user_color"] == "white"
     assert summary["white"]["rating"] == 1500
+
+
+def test_normalize_username_lowercases_strips_and_escapes():
+    from app.services.chesscom_client import normalize_username
+
+    assert normalize_username(" VKRyuji ") == "vkryuji"
+    assert normalize_username("Name/With Slash") == "name%2Fwith%20slash"
+
+
+def test_client_uses_normalized_username_in_chesscom_urls():
+    import asyncio
+
+    from app.services.chesscom_client import API_BASE, ChessComClient
+
+    class RecordingClient(ChessComClient):
+        def __init__(self):
+            super().__init__()
+            self.urls = []
+
+        async def _get_json(self, url: str) -> dict:
+            self.urls.append(url)
+            if url.endswith("/archives"):
+                return {"archives": [f"{API_BASE}/player/vkryuji/games/2026/05"]}
+            return {"games": [{"uuid": "game-1"}]}
+
+    client = RecordingClient()
+
+    games = asyncio.run(client.fetch_games(" VKRyuji ", limit=1))
+
+    assert games == [{"uuid": "game-1"}]
+    assert client.urls == [
+        f"{API_BASE}/player/vkryuji/games/archives",
+        f"{API_BASE}/player/vkryuji/games/2026/05",
+    ]

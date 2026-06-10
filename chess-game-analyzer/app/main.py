@@ -1,4 +1,6 @@
-from typing import Annotated
+from typing import Annotated, NoReturn
+
+import httpx
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import HTMLResponse
@@ -25,7 +27,6 @@ from app.services.game_analyzer import analyze_game
 from app.services.pgn_parser import PgnValidationError, export_pgn, parse_pgn
 from app.services.report_generator import generate_report
 from app.services.storage import create_game_record, game_to_dict
-from app.services.study_recommender import recommend_study
 
 app = FastAPI(title="Chess Game Analyzer", version="0.1.0")
 
@@ -57,7 +58,6 @@ def _analyze_and_store(
 
     analysis = analyze_game(parsed.game, depth=depth, multipv=multipv, max_moves=max_moves)
     report = generate_report(parsed.metadata, analysis)
-    report["study_plan"] = recommend_study(report)
     stored = create_game_record(
         db,
         export_pgn(parsed.game),
@@ -72,7 +72,9 @@ def _analyze_and_store(
 
 
 @app.post("/analyze/pgn", response_model=AnalyzeResponse)
-def analyze_pgn(payload: PgnAnalyzeRequest, db: Annotated[Session, Depends(get_db)]) -> AnalyzeResponse:
+def analyze_pgn(
+    payload: PgnAnalyzeRequest, db: Annotated[Session, Depends(get_db)]
+) -> AnalyzeResponse:
     return _analyze_and_store(
         db,
         payload.pgn,
@@ -97,13 +99,39 @@ async def analyze_pgn_upload(
         pgn = (await pgn_file.read()).decode("utf-8")
     if not pgn:
         raise HTTPException(status_code=400, detail="Envie um arquivo PGN ou cole o texto PGN.")
-    return _analyze_and_store(db, pgn, source="manual", depth=depth, multipv=multipv, max_moves=max_moves)
+    return _analyze_and_store(
+        db, pgn, source="manual", depth=depth, multipv=multipv, max_moves=max_moves
+    )
+
+
+def _raise_chesscom_http_error(exc: httpx.HTTPStatusError) -> NoReturn:
+    status = exc.response.status_code
+    if status == 404:
+        raise HTTPException(
+            status_code=404, detail="Jogador ou partidas públicas não encontrados no Chess.com."
+        ) from exc
+    raise HTTPException(
+        status_code=502,
+        detail=f"Chess.com respondeu com status {status} ao buscar partidas públicas.",
+    ) from exc
+
+
+def _raise_chesscom_request_error(exc: httpx.RequestError) -> NoReturn:
+    raise HTTPException(
+        status_code=502,
+        detail="Não foi possível conectar à API pública do Chess.com.",
+    ) from exc
 
 
 @app.get("/players/{username}/chesscom-public-games")
 async def chesscom_public_games(username: str, limit: int = 20) -> dict:
     client = ChessComClient()
-    raw_games = await client.fetch_games(username, limit=min(max(limit, 1), 50))
+    try:
+        raw_games = await client.fetch_games(username, limit=min(max(limit, 1), 50))
+    except httpx.HTTPStatusError as exc:
+        _raise_chesscom_http_error(exc)
+    except httpx.RequestError as exc:
+        _raise_chesscom_request_error(exc)
     raw_games = sorted(raw_games, key=lambda game: game.get("end_time") or 0, reverse=True)
     games = [summarize_game(game, username) for game in raw_games if game.get("pgn")]
     return {"username": username, "games": games}
@@ -132,7 +160,14 @@ async def analyze_chesscom(
     db: Annotated[Session, Depends(get_db)],
 ) -> dict:
     client = ChessComClient()
-    raw_games = await client.fetch_games(payload.username, payload.year, payload.month, limit=max(payload.limit * 3, 20))
+    try:
+        raw_games = await client.fetch_games(
+            payload.username, payload.year, payload.month, limit=max(payload.limit * 3, 20)
+        )
+    except httpx.HTTPStatusError as exc:
+        _raise_chesscom_http_error(exc)
+    except httpx.RequestError as exc:
+        _raise_chesscom_request_error(exc)
     selected = filter_games(
         raw_games,
         payload.username,
@@ -143,7 +178,9 @@ async def analyze_chesscom(
         rating_max=payload.rating_max,
     )[: payload.limit]
     if not selected:
-        raise HTTPException(status_code=404, detail="Nenhuma partida pública encontrada para os filtros.")
+        raise HTTPException(
+            status_code=404, detail="Nenhuma partida pública encontrada para os filtros."
+        )
 
     analyzed = []
     for raw in selected:
@@ -181,19 +218,37 @@ def get_report(game_id: int, db: Annotated[Session, Depends(get_db)]) -> dict:
     return game_to_dict(game)["report"]
 
 
+@app.get("/games/{game_id}/coaching-report")
+def get_coaching_report(game_id: int, db: Annotated[Session, Depends(get_db)]) -> dict:
+    report = get_report(game_id, db)
+    return {
+        "player_summaries": report.get("player_summaries", {}),
+        "coaching_summary": report.get("coaching_summary", {}),
+        "study_plan": report.get("study_plan", {}),
+        "critical_moments": report.get("critical_moments", []),
+        "patterns": report.get("patterns", {}),
+        "phase_analysis": report.get("phase_analysis", {}),
+    }
+
+
 @app.get("/players/{username}/games", response_model=list[GameSummary])
 def player_games(username: str, db: Annotated[Session, Depends(get_db)]) -> list[Game]:
-    stmt = select(Game).where(
-        or_(Game.username == username, Game.white == username, Game.black == username)
-    ).order_by(Game.created_at.desc())
+    stmt = (
+        select(Game)
+        .where(or_(Game.username == username, Game.white == username, Game.black == username))
+        .order_by(Game.created_at.desc())
+    )
     return list(db.scalars(stmt).all())
 
 
 @app.get("/players/{username}/study-plan")
 def player_study_plan(username: str, db: Annotated[Session, Depends(get_db)]) -> dict:
-    stmt = select(Game).where(
-        or_(Game.username == username, Game.white == username, Game.black == username)
-    ).order_by(Game.created_at.desc()).limit(10)
+    stmt = (
+        select(Game)
+        .where(or_(Game.username == username, Game.white == username, Game.black == username))
+        .order_by(Game.created_at.desc())
+        .limit(10)
+    )
     games = list(db.scalars(stmt).all())
     if not games:
         raise HTTPException(status_code=404, detail="Nenhuma partida armazenada para o jogador.")
@@ -202,10 +257,17 @@ def player_study_plan(username: str, db: Annotated[Session, Depends(get_db)]) ->
     for plan in plans:
         if not plan:
             continue
-        for theme in plan.get("priorities", []):
+        for item in plan.get("priorities", []):
+            theme = item.get("theme") if isinstance(item, dict) else item
+            if not theme:
+                continue
             priorities[theme] = priorities.get(theme, 0) + 1
     ordered = sorted(priorities, key=priorities.get, reverse=True)[:5]
-    return {"username": username, "priorities": ordered, "source_games": [game.id for game in games]}
+    return {
+        "username": username,
+        "priorities": ordered,
+        "source_games": [game.id for game in games],
+    }
 
 
 @app.get("/", response_class=HTMLResponse)

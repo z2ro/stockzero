@@ -85,18 +85,71 @@ Acesse:
 
 ## Interface Streamlit
 
+> O frontend deste repositório é uma aplicação Streamlit (`frontend/streamlit_app.py`). Não há projeto React/Vite/Tailwind neste código; por isso a organização de rotas e componentes foi implementada com funções de UI Streamlit, CSS global e query params (`page=games` e `page=analysis&game_id=...`).
+
 Com a API rodando:
 
 ```bash
 streamlit run frontend/streamlit_app.py
 ```
 
-Acesse <http://localhost:8501>. A interface permite colar PGN, buscar partidas públicas do Chess.com por username, escolher no painel qual partida analisar e revisar a análise em um tabuleiro navegável reconstruído diretamente do PGN salvo.
+Acesse <http://localhost:8501>. A interface permite colar PGN, buscar partidas públicas do Chess.com por username, escolher no painel qual partida analisar e revisar a análise em um tabuleiro navegável reconstruído diretamente do PGN salvo. A tela agora separa claramente a experiência em **Histórico / Importar** e **Análise atual**, evitando que o relatório seja renderizado abaixo da lista de partidas.
 
 
 ### Revisão visual da partida
 
-No modo Chess.com, informe apenas o username e clique em **Buscar partidas**. O app mostra um painel de histórico com jogadores, resultado, controle de tempo, data e um botão **Analizar** em cada linha; apenas a partida escolhida é enviada para o Stockfish. Depois de analisar um PGN ou uma partida do painel, abra o `game_id` no Streamlit. A aba **Tabuleiro** reconstrói a partida inteira a partir do PGN salvo, permite navegar lance a lance, alternar orientação entre brancas/pretas e mostra ao lado a avaliação, melhor lance, temas e explicação do lance selecionado. A tela de revisão usa um layout inspirado no Chess.com, com tabuleiro grande à esquerda, jogadores/relógios, barra de avaliação, painel lateral de treinador, lista de lances, gráfico de avaliação e controles de navegação. No tabuleiro, a seta vermelha marca o lance jogado e a seta verde mostra a melhor opção do Stockfish. O painel lateral tem botões funcionais para melhor lance, explicação, próximo lance, controles de início/voltar/avançar/fim, atalhos de teclado ←/→/Home/End e uma lista de lances dinâmica com rolagem; clicar em qualquer lance da lista leva a posição diretamente para o tabuleiro. Os lances críticos aparecem integrados à própria lista de lances e ao ajudante, enquanto a aba **Plano de estudo** transforma o JSON bruto em sugestões mais fáceis de entender.
+No modo Chess.com, informe apenas o username e clique em **Buscar partidas**. O app mostra cards modernos com jogadores, ratings, resultado, controle de tempo, data, quantidade de lances e botão **Analisar**. Ao clicar, a UI navega para a página dedicada da partida (`page=analysis&game_id=...`) com loading visual, sem empurrar o relatório para baixo da lista.
+
+A página de análise tem cabeçalho próprio com jogadores, ratings, resultado, abertura, precisão estimada e botão de voltar. A aba **Análise** destaca o tabuleiro grande à esquerda e o painel de treinador à direita; em telas menores, o layout fica vertical. O painel lateral mostra resumo rápido, melhor lance, linha recomendada, lista de lances, gráfico de avaliação e cards separados para problema do lance, prioridade da posição, consequência prática e plano correto. No tabuleiro, a seta vermelha marca o lance jogado e a seta verde mostra a melhor opção do Stockfish. Os atalhos ←/→/Home/End continuam disponíveis.
+
+A aba **Coaching report** transforma o plano de estudo em uma seção principal, com largura confortável, tipografia maior, cards por jogador, momentos críticos, padrões detectados, prioridades de treino, plano por área e exercícios recomendados.
+
+
+## Coaching report pós-partida
+
+Além do relatório tradicional de avaliação, cada análise agora gera um **coaching report** estruturado para transformar a partida em um plano de treino. O relatório é criado a partir dos dados já produzidos pelo Stockfish e pelas heurísticas do analisador: lance jogado, melhor lance, perda de avaliação, fase da partida, temas detectados, explicação do lance crítico, PV e sinais posicionais como segurança do rei, desenvolvimento, coordenação e peças vulneráveis. Quando não há evidência suficiente na partida, o relatório retorna explicitamente `Não há evidência suficiente nesta partida para concluir isso.` em vez de inventar uma causa.
+
+O objeto retornado por `GET /games/{game_id}/report` inclui as novas chaves:
+
+- `player_summaries`: diagnóstico separado para brancas e pretas, com pontos fortes, fraquezas, momentos críticos, padrões recorrentes, fase mais problemática, principal fraqueza e sugestão prática.
+- `coaching_summary`: resumo humano da partida, foco de melhoria para cada lado e principal lição prática.
+- `critical_moments`: comparação didática dos lances críticos, explicando o que o jogador tentou fazer, por que o lance falhou, o que o melhor lance resolvia, prioridade real da posição, consequência prática e tema de estudo.
+- `patterns`: agrupamento dos erros recorrentes da partida, como desenvolvimento atrasado, rei inseguro, peça pendurada, cálculo tático insuficiente, troca ruim, perda de iniciativa ou excesso de lances de peão. Cada padrão traz severidade, evidências da partida, fase afetada e prioridade de estudo.
+- `study_plan`: plano personalizado com resumo, prioridades ordenadas, exemplos da partida, como treinar, exercício diário, tempo recomendado e plano separado por abertura, tática, estratégia, finais e gerenciamento de tempo.
+- `phase_analysis`: contagem de lances críticos por fase da partida para cada jogador.
+
+Também existe um endpoint dedicado para consumir apenas o diagnóstico de treinador:
+
+```bash
+curl http://localhost:8000/games/1/coaching-report
+```
+
+A seção **Plano de estudo** da interface Streamlit usa essas informações para mostrar:
+
+- Resumo da partida.
+- O que as brancas poderiam ter jogado melhor.
+- O que as pretas poderiam ter jogado melhor.
+- Momentos críticos com comparação entre lance jogado e melhor lance.
+- Principal lição da partida.
+- Plano de estudo personalizado.
+- Exercícios recomendados por área.
+
+Exemplo simplificado de prioridade gerada:
+
+```json
+{
+  "priority": 1,
+  "theme": "Segurança do rei antes de lances laterais",
+  "why_it_matters": "A partida mostrou que prioridades locais apareceram antes de desenvolvimento, coordenação ou segurança do rei.",
+  "examples_from_game": ["8. h3 em vez de Kc2: prioridade real era segurança do rei, desenvolvimento"],
+  "how_to_train": [
+    "Treinar cálculo antes de mover peões laterais na abertura.",
+    "Separar lances de peão úteis de lances que apenas atacam uma peça que pode recuar."
+  ],
+  "daily_exercise": "Antes de cada lance na abertura, pergunte: este lance desenvolve peça, melhora o rei ou luta pelo centro?",
+  "recommended_time": "20 minutos por dia por 1 semana"
+}
+```
 
 ## Docker Compose
 
@@ -188,6 +241,12 @@ curl -X POST http://localhost:8000/analyze/chesscom/game \
 
 ```bash
 curl http://localhost:8000/games/1/report
+```
+
+### Consultar apenas o coaching report
+
+```bash
+curl http://localhost:8000/games/1/coaching-report
 ```
 
 ### Listar partidas de um jogador

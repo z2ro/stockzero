@@ -1,10 +1,15 @@
 from datetime import UTC, datetime
+from urllib.parse import quote
 
 import httpx
 
 from app.config import get_settings
 
 API_BASE = "https://api.chess.com/pub"
+
+
+def normalize_username(username: str) -> str:
+    return quote(username.strip().lower(), safe="")
 
 
 class ChessComClient:
@@ -14,17 +19,21 @@ class ChessComClient:
         self.timeout = timeout
 
     async def _get_json(self, url: str) -> dict:
-        async with httpx.AsyncClient(headers=self.headers, timeout=self.timeout) as client:
+        async with httpx.AsyncClient(
+            headers=self.headers, timeout=self.timeout, follow_redirects=True
+        ) as client:
             response = await client.get(url)
             response.raise_for_status()
             return response.json()
 
     async def archives(self, username: str) -> list[str]:
-        data = await self._get_json(f"{API_BASE}/player/{username}/games/archives")
+        normalized = normalize_username(username)
+        data = await self._get_json(f"{API_BASE}/player/{normalized}/games/archives")
         return data.get("archives", [])
 
     async def games_for_month(self, username: str, year: int, month: int) -> list[dict]:
-        data = await self._get_json(f"{API_BASE}/player/{username}/games/{year:04d}/{month:02d}")
+        normalized = normalize_username(username)
+        data = await self._get_json(f"{API_BASE}/player/{normalized}/games/{year:04d}/{month:02d}")
         return data.get("games", [])
 
     async def fetch_games(
@@ -51,7 +60,7 @@ class ChessComClient:
 
 
 def _player_result(game: dict, username: str) -> str | None:
-    lower = username.lower()
+    lower = username.strip().lower()
     for color in ("white", "black"):
         player = game.get(color, {})
         if player.get("username", "").lower() == lower:
@@ -60,7 +69,7 @@ def _player_result(game: dict, username: str) -> str | None:
 
 
 def _player_color(game: dict, username: str) -> str | None:
-    lower = username.lower()
+    lower = username.strip().lower()
     for color in ("white", "black"):
         if game.get(color, {}).get("username", "").lower() == lower:
             return color
